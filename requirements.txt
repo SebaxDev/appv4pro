@@ -1,0 +1,13 @@
+streamlit
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+gspread
+pandas
+reportlab
+pytz
+streamlit-lottie
+Pillow
+passlib
+bcrypt
+unidecode
