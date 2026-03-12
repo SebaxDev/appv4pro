@@ -528,6 +528,8 @@ def _generar_pdf_en_curso_detallado(df_merged, usuario=None):
     """
     Genera un PDF DETALLADO con reclamos en curso agrupados por técnico.
     Este es el formato completo igual al de planificación, para entregar a los técnicos.
+    
+    IMPORTANTE: Agrupa técnicos que tienen los MISMOS reclamos asignados (trabajan juntos).
     """
     st.markdown("#### 📄 En curso por técnico (Formato Completo)")
     st.caption("📋 PDF detallado con todos los datos del cliente para entregar a cada técnico")
@@ -540,22 +542,59 @@ def _generar_pdf_en_curso_detallado(df_merged, usuario=None):
         st.info("✅ No hay reclamos en curso")
         return None
 
-    # Normalizar técnicos y separar múltiples técnicos por reclamo
+    # Normalizar técnicos
     df_en_curso["Técnico"] = df_en_curso["Técnico"].fillna("").astype(str).str.upper().str.strip()
     
-    # Crear lista de todos los técnicos únicos
-    tecnicos_unicos = sorted(set(
-        tecnico.strip()
-        for t in df_en_curso["Técnico"]
-        for tecnico in t.split(",")
-        if tecnico.strip()
-    ))
+    # === AGRUPAR TÉCNICOS QUE TIENEN LOS MISMOS RECLAMOS ===
+    # Crear un diccionario: set de reclamos -> lista de técnicos que los comparten
+    from collections import defaultdict
+    
+    tecnicos_por_reclamos = defaultdict(list)
+    
+    for idx, row in df_en_curso.iterrows():
+        reclamo_id = row.get("ID Reclamo", idx)
+        tecnicos_str = row.get("Técnico", "")
+        # Obtener lista de técnicos para este reclamo
+        tecnicos_lista = [t.strip() for t in tecnicos_str.split(",") if t.strip()]
+        if tecnicos_lista:
+            # Crear una clave única basada en el reclamo
+            tecnicos_por_reclamos[reclamo_id].extend(tecnicos_lista)
+    
+    # Ahora agrupar: encontrar qué técnicos comparten TODOS los mismos reclamos
+    # Mapa: técnico -> set de IDs de reclamos
+    tecnico_a_reclamos = defaultdict(set)
+    for idx, row in df_en_curso.iterrows():
+        reclamo_id = row.get("ID Reclamo", idx)
+        tecnicos_str = row.get("Técnico", "")
+        tecnicos_lista = [t.strip() for t in tecnicos_str.split(",") if t.strip()]
+        for tecnico in tecnicos_lista:
+            tecnico_a_reclamo[tecnico].add(reclamo_id)
+    
+    # Agrupar técnicos que tienen el MISMO set de reclamos
+    grupos_tecnicos = defaultdict(list)  # frozenset de reclamos -> lista de técnicos
+    for tecnico, reclamos_set in tecnico_a_reclamo.items():
+        grupos_tecnicos[frozenset(reclamos_set)].append(tecnico)
+    
+    # Crear lista de grupos: (nombres_tecnicos, set_reclamos)
+    lista_grupos = []
+    for reclamos_set, tecnicos in grupos_tecnicos.items():
+        tecnicos_ordenados = sorted(set(tecnicos))
+        lista_grupos.append({
+            "tecnicos": tecnicos_ordenados,
+            "tecnicos_str": ", ".join(tecnicos_ordenados),
+            "reclamos_ids": reclamos_set,
+            "cantidad": len(reclamos_set)
+        })
+    
+    # Ordenar grupos por cantidad de reclamos (descendente)
+    lista_grupos.sort(key=lambda x: x["cantidad"], reverse=True)
 
-    if not tecnicos_unicos:
+    if not lista_grupos:
         st.info("⚠️ Hay reclamos en curso pero sin técnicos asignados")
         return None
 
-    st.info(f"📋 {len(df_en_curso)} reclamos en curso - {len(tecnicos_unicos)} técnico(s)")
+    total_reclamos = sum(g["cantidad"] for g in lista_grupos)
+    st.info(f"📋 {len(df_en_curso)} reclamos en curso - {len(lista_grupos)} grupo(s) de trabajo")
 
     if st.button("📄 Generar PDF Detallado", key="pdf_en_curso_detallado", use_container_width=True):
         buffer = io.BytesIO()
@@ -595,31 +634,36 @@ def _generar_pdf_en_curso_detallado(df_merged, usuario=None):
                 return True
             return False
 
-        # Procesar cada técnico
-        for tecnico in tecnicos_unicos:
-            # Filtrar reclamos de este técnico (puede tener múltiples técnicos separados por coma)
-            reclamos_tecnico = df_en_curso[
-                df_en_curso["Técnico"].apply(lambda t: tecnico in [x.strip() for x in t.split(",")])
+        # Procesar cada GRUPO de técnicos
+        for grupo_info in lista_grupos:
+            tecnicos_str = grupo_info["tecnicos_str"]
+            reclamos_ids = grupo_info["reclamos_ids"]
+            
+            # Filtrar reclamos de este grupo
+            reclamos_grupo = df_en_curso[
+                df_en_curso["ID Reclamo"].isin(reclamos_ids) | 
+                df_en_curso.index.isin(reclamos_ids)
             ].copy()
 
-            if reclamos_tecnico.empty:
+            if reclamos_grupo.empty:
                 continue
 
-            # Nueva página para cada técnico
+            # Nueva página para cada grupo
             agregar_pie_pdf(c, width, height)
             c.showPage()
             y = height - 40
 
-            # Encabezado del técnico
+            # Encabezado del grupo
             c.setFont("Helvetica-Bold", 16)
-            c.drawString(margen_izq, y, f"👷 TÉCNICO: {tecnico}")
+            etiqueta_tecnico = "Técnico:" if len(grupo_info["tecnicos"]) == 1 else "Técnicos:"
+            c.drawString(margen_izq, y, f"👷 {etiqueta_tecnico} {tecnicos_str}")
             y -= 18
             c.setFont("Helvetica", 12)
-            c.drawString(margen_izq, y, f"📅 Asignación del {hoy} | {len(reclamos_tecnico)} reclamo(s)")
+            c.drawString(margen_izq, y, f"📅 Asignación del {hoy} | {len(reclamos_grupo)} reclamo(s)")
             y -= 15
 
             # Resumen de tipos de reclamo
-            tipos_resumen = reclamos_tecnico["Tipo de reclamo"].value_counts()
+            tipos_resumen = reclamos_grupo["Tipo de reclamo"].value_counts()
             resumen_tipos = " - ".join([f"{v} {k}" for k, v in tipos_resumen.items()])
             
             # Wrap del resumen si es muy largo
@@ -629,12 +673,12 @@ def _generar_pdf_en_curso_detallado(df_merged, usuario=None):
                 y -= 12
             
             # Sectores cubiertos
-            sectores = ", ".join(sorted(set(reclamos_tecnico["Sector"].astype(str))))
+            sectores = ", ".join(sorted(set(reclamos_grupo["Sector"].astype(str))))
             c.drawString(margen_izq, y, f"Sectores: {sectores}")
             y -= 25
 
             # Lista detallada de reclamos
-            for _, row in reclamos_tecnico.iterrows():
+            for _, row in reclamos_grupo.iterrows():
                 salto_pagina_si_necesario(120)
 
                 # Encabezado del reclamo
@@ -694,8 +738,8 @@ def _generar_pdf_en_curso_detallado(df_merged, usuario=None):
                 c.line(margen_izq, y, width - margen_der, y)
                 y -= 15
 
-            # Materiales estimados para este técnico
-            materiales = _calcular_materiales_tecnico(reclamos_tecnico)
+            # Materiales estimados para este grupo
+            materiales = _calcular_materiales_tecnico(reclamos_grupo)
             if materiales:
                 salto_pagina_si_necesario(80)
                 y -= 10
@@ -723,7 +767,7 @@ def _generar_pdf_en_curso_detallado(df_merged, usuario=None):
             help="PDF con todos los datos de los reclamos para entregar a los técnicos"
         )
 
-        return f"PDF detallado generado con {len(df_en_curso)} reclamos de {len(tecnicos_unicos)} técnico(s)"
+        return f"PDF detallado generado con {len(df_en_curso)} reclamos para {len(lista_grupos)} grupo(s) de trabajo"
 
     return None
 
