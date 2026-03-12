@@ -10,7 +10,7 @@ from utils.date_utils import format_fecha, parse_fecha
 from utils.pdf_utils import agregar_pie_pdf
 from utils.date_utils import ahora_argentina
 from utils.reporte_diario import *
-from config.settings import DEBUG_MODE
+from config.settings import DEBUG_MODE, MATERIALES_POR_RECLAMO, ROUTER_POR_SECTOR
 
 def render_impresion_reclamos(df_reclamos, df_clientes, user):
     """
@@ -90,9 +90,12 @@ def render_impresion_reclamos(df_reclamos, df_clientes, user):
         col5, col6 = st.columns(2)
 
         with col5:
-            mensaje_en_curso = _generar_pdf_en_curso_por_tecnico(df_merged, user if incluir_usuario else None)
-            if mensaje_en_curso:
-                result['message'] = mensaje_en_curso
+            # Espacio reservado - la opción de en curso se movió a una sección dedicada más abajo
+            st.markdown("#### 📊 Estadísticas Rápidas")
+            df_en_curso_count = df_reclamos[df_reclamos["Estado"].astype(str).str.strip().str.lower() == "en curso"]
+            df_pendientes_count = df_reclamos[df_reclamos["Estado"].astype(str).str.strip().str.lower() == "pendiente"]
+            st.metric("🔄 En Curso", len(df_en_curso_count))
+            st.metric("⏳ Pendientes", len(df_pendientes_count))
 
         with col6:
             # Nueva opción: Reporte Diario en el grid
@@ -108,6 +111,26 @@ def render_impresion_reclamos(df_reclamos, df_clientes, user):
                     mime="image/png",
                     use_container_width=True
                 )
+
+        # === NUEVA FILA: PDF Detallado por Técnico ===
+        st.markdown("---")
+        st.markdown("### 📋 Reclamos en Curso - PDF Detallado por Técnico")
+        st.caption("💡 Esta opción genera un PDF con el mismo formato que el módulo de Planificación, ideal para entregar a los técnicos.")
+
+        col_det1, col_det2 = st.columns(2)
+
+        with col_det1:
+            mensaje_detallado = _generar_pdf_en_curso_detallado(df_merged, user if incluir_usuario else None)
+            if mensaje_detallado:
+                result['message'] = mensaje_detallado
+
+        with col_det2:
+            # Versión resumida (la que ya existía)
+            st.markdown("#### 📝 Versión Resumida")
+            st.caption("Lista compacta de reclamos por técnico")
+            mensaje_resumido = _generar_pdf_en_curso_por_tecnico(df_merged, user if incluir_usuario else None)
+            if mensaje_resumido:
+                result['message'] = mensaje_resumido
 
         # === NUEVA FILA: Resumen Mensual ===
         st.markdown("---")
@@ -483,6 +506,224 @@ def _generar_pdf_en_curso_por_tecnico(df_merged, usuario=None):
         )
 
         return "PDF generado con reclamos en curso por técnico"
+
+    return None
+
+def _calcular_materiales_tecnico(reclamos_tecnico):
+    """Calcula los materiales necesarios para los reclamos de un técnico"""
+    materiales_total = {}
+    for _, row in reclamos_tecnico.iterrows():
+        tipo = row.get("Tipo de reclamo", "")
+        sector = str(row.get("Sector", ""))
+        materiales_tipo = MATERIALES_POR_RECLAMO.get(tipo, {})
+        for mat, cant in materiales_tipo.items():
+            key = mat
+            if "router" in mat:
+                marca = ROUTER_POR_SECTOR.get(sector, "vsol")
+                key = f"router_{marca}"
+            materiales_total[key] = materiales_total.get(key, 0) + cant
+    return materiales_total
+
+def _generar_pdf_en_curso_detallado(df_merged, usuario=None):
+    """
+    Genera un PDF DETALLADO con reclamos en curso agrupados por técnico.
+    Este es el formato completo igual al de planificación, para entregar a los técnicos.
+    """
+    st.markdown("#### 📄 En curso por técnico (Formato Completo)")
+    st.caption("📋 PDF detallado con todos los datos del cliente para entregar a cada técnico")
+
+    df_en_curso = df_merged[
+        df_merged["Estado"].astype(str).str.strip().str.lower() == "en curso"
+    ].copy()
+
+    if df_en_curso.empty:
+        st.info("✅ No hay reclamos en curso")
+        return None
+
+    # Normalizar técnicos y separar múltiples técnicos por reclamo
+    df_en_curso["Técnico"] = df_en_curso["Técnico"].fillna("").astype(str).str.upper().str.strip()
+    
+    # Crear lista de todos los técnicos únicos
+    tecnicos_unicos = sorted(set(
+        tecnico.strip()
+        for t in df_en_curso["Técnico"]
+        for tecnico in t.split(",")
+        if tecnico.strip()
+    ))
+
+    if not tecnicos_unicos:
+        st.info("⚠️ Hay reclamos en curso pero sin técnicos asignados")
+        return None
+
+    st.info(f"📋 {len(df_en_curso)} reclamos en curso - {len(tecnicos_unicos)} técnico(s)")
+
+    if st.button("📄 Generar PDF Detallado", key="pdf_en_curso_detallado", use_container_width=True):
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+        margen_izq = 40
+        margen_der = 40
+        y = height - 40
+        hoy = ahora_argentina().strftime('%d/%m/%Y')
+        max_line_width = width - margen_izq - margen_der
+
+        def wrap_text(texto, fuente="Helvetica", tam=11):
+            """Envuelve texto para que quepa en el ancho disponible"""
+            if not texto:
+                return []
+            palabras = str(texto).split()
+            lineas = []
+            actual = ""
+            for p in palabras:
+                candidata = (actual + (" " if actual else "") + p)
+                if c.stringWidth(candidata, fuente, tam) <= max_line_width:
+                    actual = candidata
+                else:
+                    if actual:
+                        lineas.append(actual)
+                    actual = p
+            if actual:
+                lineas.append(actual)
+            return lineas
+
+        def salto_pagina_si_necesario(altura_necesaria=100):
+            nonlocal y
+            if y < altura_necesaria:
+                agregar_pie_pdf(c, width, height)
+                c.showPage()
+                y = height - 40
+                return True
+            return False
+
+        # Procesar cada técnico
+        for tecnico in tecnicos_unicos:
+            # Filtrar reclamos de este técnico (puede tener múltiples técnicos separados por coma)
+            reclamos_tecnico = df_en_curso[
+                df_en_curso["Técnico"].apply(lambda t: tecnico in [x.strip() for x in t.split(",")])
+            ].copy()
+
+            if reclamos_tecnico.empty:
+                continue
+
+            # Nueva página para cada técnico
+            agregar_pie_pdf(c, width, height)
+            c.showPage()
+            y = height - 40
+
+            # Encabezado del técnico
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(margen_izq, y, f"👷 TÉCNICO: {tecnico}")
+            y -= 18
+            c.setFont("Helvetica", 12)
+            c.drawString(margen_izq, y, f"📅 Asignación del {hoy} | {len(reclamos_tecnico)} reclamo(s)")
+            y -= 15
+
+            # Resumen de tipos de reclamo
+            tipos_resumen = reclamos_tecnico["Tipo de reclamo"].value_counts()
+            resumen_tipos = " - ".join([f"{v} {k}" for k, v in tipos_resumen.items()])
+            
+            # Wrap del resumen si es muy largo
+            c.setFont("Helvetica", 10)
+            for linea in wrap_text(resumen_tipos, tam=10):
+                c.drawString(margen_izq, y, linea)
+                y -= 12
+            
+            # Sectores cubiertos
+            sectores = ", ".join(sorted(set(reclamos_tecnico["Sector"].astype(str))))
+            c.drawString(margen_izq, y, f"Sectores: {sectores}")
+            y -= 25
+
+            # Lista detallada de reclamos
+            for _, row in reclamos_tecnico.iterrows():
+                salto_pagina_si_necesario(120)
+
+                # Encabezado del reclamo
+                c.setFont("Helvetica-Bold", 13)
+                num_cliente = str(row.get("Nº Cliente", "")).strip()
+                nombre = str(row.get("Nombre", "")).strip()
+                sector = str(row.get("Sector", "")).strip()
+                
+                nombre_linea = f"{num_cliente} - {nombre} ({sector})"
+                for l in wrap_text(nombre_linea, fuente="Helvetica-Bold", tam=13):
+                    c.drawString(margen_izq, y, l)
+                    y -= 15
+
+                # Datos del reclamo
+                c.setFont("Helvetica", 11)
+                
+                # Fecha
+                fecha_val = row.get("Fecha y hora")
+                try:
+                    if pd.notna(fecha_val) and not isinstance(fecha_val, pd.Timestamp):
+                        fecha_val = pd.to_datetime(fecha_val, dayfirst=True, errors='coerce')
+                except:
+                    fecha_val = None
+                fecha_pdf = format_fecha(fecha_val, '%d/%m/%Y %H:%M') if pd.notna(fecha_val) else 'Sin fecha'
+
+                direccion = str(row.get("Dirección", "")).strip()
+                telefono = str(row.get("Teléfono", "")).strip()
+                precinto = str(row.get("N° de Precinto", "")).strip()
+                tipo = str(row.get("Tipo de reclamo", "")).strip()
+                detalles = str(row.get("Detalles", "")).strip()
+
+                lineas = [
+                    f"Fecha: {fecha_pdf}",
+                    f"Dirección: {direccion}",
+                    f"Tel: {telefono} - Precinto: {precinto}" if telefono or precinto else "Precinto: " + precinto,
+                    f"Tipo: {tipo}",
+                ]
+
+                for linea in lineas:
+                    for l in wrap_text(linea, tam=11):
+                        c.drawString(margen_izq, y, l)
+                        y -= 12
+
+                # Detalles (con wrap)
+                if detalles:
+                    detalles_lineas = wrap_text(detalles, tam=11)
+                    for i, l in enumerate(detalles_lineas):
+                        if i == 0:
+                            c.drawString(margen_izq, y, f"Detalles: {l}")
+                        else:
+                            c.drawString(margen_izq + 55, y, l)  # Indent para líneas siguientes
+                        y -= 12
+                        salto_pagina_si_necesario(60)
+
+                # Separador
+                y -= 5
+                c.line(margen_izq, y, width - margen_der, y)
+                y -= 15
+
+            # Materiales estimados para este técnico
+            materiales = _calcular_materiales_tecnico(reclamos_tecnico)
+            if materiales:
+                salto_pagina_si_necesario(80)
+                y -= 10
+                c.setFont("Helvetica-Bold", 12)
+                c.drawString(margen_izq, y, "🛠️ Materiales mínimos estimados:")
+                y -= 15
+                c.setFont("Helvetica", 11)
+                for mat, cant in materiales.items():
+                    c.drawString(margen_izq, y, f"  • {cant} {mat.replace('_', ' ').title()}")
+                    y -= 12
+                y -= 15
+
+        agregar_pie_pdf(c, width, height)
+        c.save()
+        buffer.seek(0)
+
+        nombre_archivo = f"reclamos_en_curso_detallado_{ahora_argentina().strftime('%Y%m%d_%H%M')}.pdf"
+
+        st.download_button(
+            label="⬇️ Descargar PDF Detallado",
+            data=buffer,
+            file_name=nombre_archivo,
+            mime="application/pdf",
+            use_container_width=True,
+            help="PDF con todos los datos de los reclamos para entregar a los técnicos"
+        )
+
+        return f"PDF detallado generado con {len(df_en_curso)} reclamos de {len(tecnicos_unicos)} técnico(s)"
 
     return None
 
