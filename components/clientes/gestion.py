@@ -76,10 +76,14 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role)
                 # ==========================================
                 st.info("ℹ️ Este cliente no tiene georreferencia cargada. Ingresá las coordenadas:")
                 
+                # Prefijos por defecto de la zona para acelerar la carga
+                default_lat = "-26."
+                default_lon = "-59."
+
                 with st.form("form_cargar_geo"):
-                    # Si había datos basura, los mostramos para que el usuario vea qué había
-                    val_lat = lat if lat not in ("nan", "None") else ""
-                    val_lon = lon if lon not in ("nan", "None") else ""
+                    # Si había datos previos (aunque sean inválidos), mostrarlos. Si no, poner el prefijo.
+                    val_lat = lat if lat not in ("nan", "None", "") else default_lat
+                    val_lon = lon if lon not in ("nan", "None", "") else default_lon
 
                     new_lat = st.text_input(
                         "Latitud (Columna J)", 
@@ -104,7 +108,6 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role)
                                 row_idx = cliente.name + 2
                                 
                                 # Guardar EXACTAMENTE como texto sin formato
-                                # new_lat.strip() y new_lon.strip() se envían como cadenas de texto
                                 updates = [
                                     {"range": f"J{row_idx}", "values": [[new_lat.strip()]]},
                                     {"range": f"K{row_idx}", "values": [[new_lon.strip()]]}
@@ -119,6 +122,6 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role)
                                     st.error(f"❌ Error al guardar en la hoja: {error}")
                                     
                             except ValueError:
-                                st.error("❌ Las coordenadas deben ser valores numéricos (ej: -27.4567 o -27,4567).")
+                                st.error("❌ Las coordenadas deben ser valores numéricos (ej: -26.123456 o -26,123456).")
 
     return {"needs_refresh": False}
