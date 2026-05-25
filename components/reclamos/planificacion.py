@@ -769,6 +769,21 @@ def _generar_qr_google_maps(latitud, longitud):
             border=2,
         )
 
+        qr.add_data(maps_url)
+        qr.make(fit=True)
+
+        img = qr.make_image(fill_color="black", back_color="white")
+
+        if not isinstance(img, Image.Image):
+            img = img.get_image()
+
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format="PNG")
+        img_buffer.seek(0)
+
+        return ImageReader(img_buffer)
+
+    except Exception:
         return None
 
 def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes):
