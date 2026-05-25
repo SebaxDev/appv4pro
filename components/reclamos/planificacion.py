@@ -22,6 +22,24 @@ import uuid
 
 GRUPOS_POSIBLES = [f"Grupo {letra}" for letra in "ABCDE"]
 
+# --- FUNCIONES DE UTILIDAD PARA COORDENADAS ---
+
+def _limpiar_valor_id(val):
+    """Limpia IDs para evitar errores de tipo '450.0' vs '450'"""
+    if pd.isna(val) or val == "": return ""
+    return str(val).split('.')[0].strip()
+
+def _es_coordenada_valida(val):
+    """Verifica si un string/número puede ser una coordenada válida"""
+    if pd.isna(val) or str(val).strip() == "" or str(val).lower() == "nan":
+        return False
+    try:
+        # Reemplaza coma por punto por si viene en formato latino
+        f = float(str(val).replace(',', '.').strip())
+        return not np.isnan(f)
+    except ValueError:
+        return False
+
 def generar_id_unico():
     """Genera un ID único para reclamos y clientes"""
     return str(uuid.uuid4())[:8].upper()
@@ -156,7 +174,7 @@ def distribuir_por_tipo(df_reclamos, grupos_activos):
             i += 1
     return asignaciones
 
-# --- UI ---
+# --- UI Y LOGICA DE FILTROS ---
 
 def _mostrar_asignacion_tecnicos(grupos_activos):
     st.markdown("### 👷 Asignar técnicos a cada grupo")
@@ -236,7 +254,7 @@ def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=N
 
     if df_pendientes is not None:
         mats = _mostrar_reclamos_asignados(df_pendientes, grupos_activos)
-        # SOLUCIÓN ERROR: Pasamos el df_clientes a la función de acciones finales
+        # PASAR DF_CLIENTES AQUI
         cambios = _mostrar_acciones_finales(df_reclamos, sheet_reclamos, grupos_activos, mats, df_pendientes, df_clientes)
         return {'needs_refresh': cambios}
     return {'needs_refresh': False}
@@ -272,10 +290,9 @@ def _mostrar_acciones_finales(df_reclamos, sheet_reclamos, grupos_activos, mater
     if col1.button("💾 Guardar y pasar a 'En curso'", use_container_width=True):
         return _guardar_cambios(df_reclamos, sheet_reclamos, grupos_activos)
     
-    # CORRECCIÓN AQUÍ: Pasamos df_clientes que antes faltaba en el llamado
     if col2.button("📄 Generar PDF de asignaciones", use_container_width=True):
         if df_clientes is None:
-            st.error("Error: No se cargó la base de clientes para generar los QR.")
+            st.error("Error: Base de clientes no disponible.")
         else:
             _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes)
     return False
@@ -296,20 +313,20 @@ def _guardar_cambios(df_reclamos, sheet_reclamos, grupos_activos):
     return False
 
 # =================================================================
-# FUNCIÓN DE PDF CON LÓGICA DE QR ROBUSTA
+# FUNCIÓN DE PDF CON LÓGICA DE COORDENADAS REFORZADA
 # =================================================================
 
 def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes):
-    """Genera PDF con QR de ubicación cruzando datos con la hoja de clientes."""
+    """Genera PDF con QR. Limpia IDs y coordenadas para evitar errores de formato texto."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     hoy = datetime.now().strftime('%d/%m/%Y')
 
-    # Normalizar base de clientes para búsqueda precisa
+    # Normalización agresiva de la base de clientes para búsqueda
     df_c = df_clientes.copy()
-    # Asegurar que Nº Cliente sea string sin espacios
-    df_c["Nº Cliente"] = df_c["Nº Cliente"].astype(str).str.strip()
+    # Limpiamos el Nro de Cliente para que "450.0" sea "450" y coincida siempre
+    df_c["Nº Cliente"] = df_c["Nº Cliente"].apply(_limpiar_valor_id)
 
     for grupo in GRUPOS_POSIBLES[:grupos_activos]:
         ids = st.session_state.asignaciones_grupos[grupo]
@@ -328,30 +345,28 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             if r_data.empty: continue
             reclamo = r_data.iloc[0]
 
-            # --- Búsqueda de ubicación en el cliente ---
-            nro_cliente_str = str(reclamo['Nº Cliente']).strip()
-            c_info = df_c[df_c["Nº Cliente"] == nro_cliente_str]
+            # Buscar coordenadas limpiando el ID de búsqueda también
+            id_busqueda = _limpiar_valor_id(reclamo['Nº Cliente'])
+            c_info = df_c[df_c["Nº Cliente"] == id_busqueda]
             
             lat, lon = None, None
             if not c_info.empty:
                 lat = c_info.iloc[0].get("Latitud")
                 lon = c_info.iloc[0].get("Longitud")
 
-            # Dibujar Título del Reclamo
+            # Título Reclamo
             c.setFont("Helvetica-Bold", 13)
             c.drawString(40, y, f"{reclamo['Nº Cliente']} - {reclamo['Nombre']} (Sect. {reclamo['Sector']})")
             
-            # --- LÓGICA QR ROBUSTA ---
-            # Verificamos que lat y lon no sean nulos, ni NaN, ni vacíos
-            coord_valida = False
-            if pd.notna(lat) and pd.notna(lon):
-                lat_str, lon_str = str(lat).strip(), str(lon).strip()
-                if lat_str != "" and lon_str != "" and lat_str.lower() != "nan":
-                    coord_valida = True
-
-            if coord_valida:
+            # --- LÓGICA QR MEJORADA PARA TEXTO ---
+            if _es_coordenada_valida(lat) and _es_coordenada_valida(lon):
                 try:
-                    url = f"https://www.google.com/maps?q={lat},{lon}"
+                    # Limpiamos los valores de texto (reemplazar coma por punto)
+                    lat_f = str(lat).replace(',', '.').strip()
+                    lon_f = str(lon).replace(',', '.').strip()
+                    
+                    url = f"https://www.google.com/maps?q={lat_f},{lon_f}"
+                    
                     qr = qrcode.QRCode(version=1, box_size=10, border=1)
                     qr.add_data(url); qr.make(fit=True)
                     img = qr.make_image(fill="black", back="white")
@@ -360,20 +375,16 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                     img.save(q_buf, format='PNG')
                     q_buf.seek(0)
                     
-                    # Dibujar el QR (Lado derecho del título)
                     c.drawImage(q_buf, width - 110, y - 55, width=70, height=70)
-                    c.setFont("Helvetica-Oblique", 7)
-                    c.drawRightString(width - 40, y - 62, "UBICACIÓN GPS")
+                    c.setFont("Helvetica-Oblique", 7); c.drawRightString(width - 40, y - 62, "UBICACIÓN GPS")
                 except Exception as e:
-                    if DEBUG_MODE: st.write(f"Error generando QR: {e}")
+                    if DEBUG_MODE: st.write(f"Error QR ID {id_busqueda}: {e}")
             else:
-                # Si no hay coordenadas, mostramos el aviso para que el usuario sepa que falló la búsqueda
-                c.setFont("Helvetica-Oblique", 8)
-                c.setFillColorRGB(0.5, 0.5, 0.5) # Gris
+                c.setFont("Helvetica-Oblique", 8); c.setFillColorRGB(0.5,0.5,0.5)
                 c.drawRightString(width - 40, y, "Sin georeferencia")
-                c.setFillColorRGB(0, 0, 0) # Volver a negro
+                c.setFillColorRGB(0,0,0)
 
-            # Datos secundarios del reclamo
+            # Texto Reclamo
             y -= 15; c.setFont("Helvetica", 10)
             c.drawString(40, y, f"Dirección: {reclamo['Dirección']}")
             y -= 12; c.drawString(40, y, f"Tel: {reclamo['Teléfono']} - Precinto: {reclamo.get('N° de Precinto', 'N/A')}")
@@ -383,19 +394,17 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             
             y -= 20; c.line(40, y, width - 40, y); y -= 25
 
-            # Salto de página
             if y < 130:
                 agregar_pie_pdf(c, width, height)
                 c.showPage(); y = height - 40
 
-        # Materiales al final de la página del grupo
+        # Materiales
         m_g = materiales_por_grupo.get(grupo, {})
         if m_g:
             y -= 10; c.setFont("Helvetica-Bold", 12); c.drawString(40, y, "Materiales estimados:"); y -= 15
             c.setFont("Helvetica", 11)
             for m, cant in m_g.items():
-                c.drawString(40, y, f"- {cant} {m.replace('_', ' ').title()}"); y -= 12
+                c.drawString(40, y, f"- {cant} {m.replace('_', ' ').title()} Cant."); y -= 12
 
-    c.save()
-    buffer.seek(0)
-    st.download_button(label="📄 Descargar PDF con QR", data=buffer, file_name=f"Asignaciones_{hoy}.pdf", mime="application/pdf")
+    c.save(); buffer.seek(0)
+    st.download_button(label="📄 Descargar PDF con QR", data=buffer, file_name=f"Plan de Trabajo_{hoy}.pdf", mime="application/pdf")
