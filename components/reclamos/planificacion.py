@@ -3,10 +3,11 @@
 import io
 import streamlit as st
 import pandas as pd
+import numpy as np
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-import qrcode  # <--- Librería para QR
+import qrcode  # Requerido: pip install qrcode
 from utils.date_utils import parse_fecha, format_fecha
 from utils.api_manager import api_manager, batch_update_sheet
 from utils.pdf_utils import agregar_pie_pdf
@@ -26,24 +27,20 @@ def generar_id_unico():
     return str(uuid.uuid4())[:8].upper()
 
 def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_clientes):
-    """Genera UUIDs para registros que no los tengan"""
+    """Genera UUIDs para registros que no los tengan."""
     updates_reclamos = []
     updates_clientes = []
     uuids_generados = False
     
     try:
         if 'ID Reclamo' in df_reclamos.columns:
-            reclamos_sin_uuid = df_reclamos[
-                df_reclamos['ID Reclamo'].isna() | (df_reclamos['ID Reclamo'] == '')
-            ]
+            reclamos_sin_uuid = df_reclamos[df_reclamos['ID Reclamo'].isna() | (df_reclamos['ID Reclamo'] == '')]
             for _, row in reclamos_sin_uuid.iterrows():
                 nuevo_uuid = generar_id_unico()
                 updates_reclamos.append({"range": f"P{row.name + 2}", "values": [[nuevo_uuid]]})
         
         if 'ID Cliente' in df_clientes.columns:
-            clientes_sin_uuid = df_clientes[
-                df_clientes['ID Cliente'].isna() | (df_clientes['ID Cliente'] == '')
-            ]
+            clientes_sin_uuid = df_clientes[df_clientes['ID Cliente'].isna() | (df_clientes['ID Cliente'] == '')]
             for _, row in clientes_sin_uuid.iterrows():
                 nuevo_uuid = generar_id_unico()
                 updates_clientes.append({"range": f"G{row.name + 2}", "values": [[nuevo_uuid]]})
@@ -59,7 +56,7 @@ def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_cli
         st.error(f"❌ Error UUIDs: {str(e)}")
     return uuids_generados
 
-# --- LÓGICA DE DISTRIBUCIÓN ORIGINAL COMPLETA ---
+# --- LÓGICA DE DISTRIBUCIÓN ORIGINAL ---
 
 SECTORES_VECINOS = {
     "Zona 1": ["1", "2", "3", "4"],
@@ -145,40 +142,6 @@ def distribuir_por_sector_mejorado(df_reclamos, grupos_activos):
         if grupo: asignaciones[grupo].append(r["ID Reclamo"])
     return asignaciones
 
-def _balancear_asignaciones(asignaciones, df_reclamos):
-    carga_por_grupo = {g: len(recs) for g, recs in asignaciones.items()}
-    intentos = 0
-    while (max(carga_por_grupo.values()) - min(carga_por_grupo.values())) > 1 and intentos < 100:
-        intentos += 1
-        ord_g = sorted(carga_por_grupo.keys(), key=lambda g: carga_por_grupo[g])
-        g_min, g_max = ord_g[0], ord_g[-1]
-        rid = _encontrar_reclamo_transferible(asignaciones[g_max], g_max, g_min, df_reclamos, asignaciones)
-        if not rid: break
-        asignaciones[g_max].remove(rid)
-        asignaciones[g_min].append(rid)
-        carga_por_grupo[g_max] -= 1
-        carga_por_grupo[g_min] += 1
-    return asignaciones
-
-def _encontrar_reclamo_transferible(reclamos_origen, g_origen, g_destino, df_reclamos, asignaciones):
-    zonas_dest = []
-    recs_d = df_reclamos[df_reclamos["ID Reclamo"].isin(asignaciones[g_destino])]
-    for _, r in recs_d.iterrows():
-        for z, s in SECTORES_VECINOS.items():
-            if str(r["Sector"]) in s and z not in zonas_dest: zonas_dest.append(z)
-    mejor_id, mejor_score = None, float("-inf")
-    for rid in reclamos_origen:
-        fila = df_reclamos[df_reclamos["ID Reclamo"] == rid]
-        if fila.empty: continue
-        sector = str(fila.iloc[0]["Sector"])
-        zona_r = next((z for z, s in SECTORES_VECINOS.items() if sector in s), None)
-        if not zona_r: continue
-        score = len(ZONAS_COMPATIBLES.get(zona_r, []))
-        if zonas_dest:
-            if any(zona_r in ZONAS_COMPATIBLES.get(zd, []) for zd in zonas_dest): score += 100
-        if score > mejor_score: mejor_score, mejor_id = score, rid
-    return mejor_id
-
 def distribuir_por_tipo(df_reclamos, grupos_activos):
     df_reclamos = df_reclamos[df_reclamos["Estado"] == "Pendiente"].copy()
     grupos = GRUPOS_POSIBLES[:grupos_activos]
@@ -193,7 +156,7 @@ def distribuir_por_tipo(df_reclamos, grupos_activos):
             i += 1
     return asignaciones
 
-# --- UI Y GESTIÓN DE PANTALLA ---
+# --- UI ---
 
 def _mostrar_asignacion_tecnicos(grupos_activos):
     st.markdown("### 👷 Asignar técnicos a cada grupo")
@@ -237,7 +200,7 @@ def _limpiar_asignaciones(df_reclamos):
     for g in st.session_state.asignaciones_grupos:
         st.session_state.asignaciones_grupos[g] = [rid for rid in st.session_state.asignaciones_grupos[g] if str(rid) in valid_ids]
 
-# --- FUNCIÓN PRINCIPAL RENDER ---
+# --- RENDER PRINCIPAL ---
 
 def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=None, sheet_clientes=None):
     if user.get('rol') != 'admin':
@@ -273,7 +236,7 @@ def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=N
 
     if df_pendientes is not None:
         mats = _mostrar_reclamos_asignados(df_pendientes, grupos_activos)
-        # AQUÍ CORREGIMOS EL PASO DE DATOS: Pasamos df_clientes
+        # SOLUCIÓN ERROR: Pasamos el df_clientes a la función de acciones finales
         cambios = _mostrar_acciones_finales(df_reclamos, sheet_reclamos, grupos_activos, mats, df_pendientes, df_clientes)
         return {'needs_refresh': cambios}
     return {'needs_refresh': False}
@@ -303,17 +266,18 @@ def _calcular_materiales_grupo(recs):
             total[key] = total.get(key, 0) + cant
     return total
 
-# --- ACCIONES FINALES Y PDF (CORRECCIÓN DE ERROR) ---
-
 def _mostrar_acciones_finales(df_reclamos, sheet_reclamos, grupos_activos, materiales_por_grupo, df_pendientes, df_clientes):
     st.markdown("---")
     col1, col2 = st.columns(2)
     if col1.button("💾 Guardar y pasar a 'En curso'", use_container_width=True):
         return _guardar_cambios(df_reclamos, sheet_reclamos, grupos_activos)
     
-    # CORRECCIÓN AQUÍ: Ahora le pasamos df_clientes que antes faltaba
-    if col2.button("📄 Generar PDF con QR", use_container_width=True):
-        _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes)
+    # CORRECCIÓN AQUÍ: Pasamos df_clientes que antes faltaba en el llamado
+    if col2.button("📄 Generar PDF de asignaciones", use_container_width=True):
+        if df_clientes is None:
+            st.error("Error: No se cargó la base de clientes para generar los QR.")
+        else:
+            _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes)
     return False
 
 def _guardar_cambios(df_reclamos, sheet_reclamos, grupos_activos):
@@ -332,18 +296,19 @@ def _guardar_cambios(df_reclamos, sheet_reclamos, grupos_activos):
     return False
 
 # =================================================================
-# FUNCIÓN DE PDF FINAL CON QR INTEGRADO
+# FUNCIÓN DE PDF CON LÓGICA DE QR ROBUSTA
 # =================================================================
 
 def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes):
-    """Genera PDF con QR de ubicación cruzando datos con la hoja de clientes"""
+    """Genera PDF con QR de ubicación cruzando datos con la hoja de clientes."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
     hoy = datetime.now().strftime('%d/%m/%Y')
 
-    # Normalizar base de clientes para búsqueda
+    # Normalizar base de clientes para búsqueda precisa
     df_c = df_clientes.copy()
+    # Asegurar que Nº Cliente sea string sin espacios
     df_c["Nº Cliente"] = df_c["Nº Cliente"].astype(str).str.strip()
 
     for grupo in GRUPOS_POSIBLES[:grupos_activos]:
@@ -363,44 +328,67 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             if r_data.empty: continue
             reclamo = r_data.iloc[0]
 
-            # Buscar coordenadas
-            c_info = df_c[df_c["Nº Cliente"] == str(reclamo['Nº Cliente']).strip()]
+            # --- Búsqueda de ubicación en el cliente ---
+            nro_cliente_str = str(reclamo['Nº Cliente']).strip()
+            c_info = df_c[df_c["Nº Cliente"] == nro_cliente_str]
+            
             lat, lon = None, None
             if not c_info.empty:
-                lat, lon = c_info.iloc[0].get("Latitud"), c_info.iloc[0].get("Longitud")
+                lat = c_info.iloc[0].get("Latitud")
+                lon = c_info.iloc[0].get("Longitud")
 
-            # Dibujar Reclamo
+            # Dibujar Título del Reclamo
             c.setFont("Helvetica-Bold", 13)
             c.drawString(40, y, f"{reclamo['Nº Cliente']} - {reclamo['Nombre']} (Sect. {reclamo['Sector']})")
             
-            # QR
-            if lat and lon and str(lat).strip() != "":
+            # --- LÓGICA QR ROBUSTA ---
+            # Verificamos que lat y lon no sean nulos, ni NaN, ni vacíos
+            coord_valida = False
+            if pd.notna(lat) and pd.notna(lon):
+                lat_str, lon_str = str(lat).strip(), str(lon).strip()
+                if lat_str != "" and lon_str != "" and lat_str.lower() != "nan":
+                    coord_valida = True
+
+            if coord_valida:
                 try:
                     url = f"https://www.google.com/maps?q={lat},{lon}"
                     qr = qrcode.QRCode(version=1, box_size=10, border=1)
                     qr.add_data(url); qr.make(fit=True)
                     img = qr.make_image(fill="black", back="white")
-                    q_buf = io.BytesIO(); img.save(q_buf, format='PNG'); q_buf.seek(0)
+                    
+                    q_buf = io.BytesIO()
+                    img.save(q_buf, format='PNG')
+                    q_buf.seek(0)
+                    
+                    # Dibujar el QR (Lado derecho del título)
                     c.drawImage(q_buf, width - 110, y - 55, width=70, height=70)
-                    c.setFont("Helvetica-Oblique", 7); c.drawRightString(width - 40, y - 62, "UBICACIÓN GPS")
-                except: pass
+                    c.setFont("Helvetica-Oblique", 7)
+                    c.drawRightString(width - 40, y - 62, "UBICACIÓN GPS")
+                except Exception as e:
+                    if DEBUG_MODE: st.write(f"Error generando QR: {e}")
             else:
-                c.setFont("Helvetica-Oblique", 8); c.setFillColorRGB(0.5,0.5,0.5)
-                c.drawRightString(width - 40, y, "Sin ubicación"); c.setFillColorRGB(0,0,0)
+                # Si no hay coordenadas, mostramos el aviso para que el usuario sepa que falló la búsqueda
+                c.setFont("Helvetica-Oblique", 8)
+                c.setFillColorRGB(0.5, 0.5, 0.5) # Gris
+                c.drawRightString(width - 40, y, "Sin georeferencia")
+                c.setFillColorRGB(0, 0, 0) # Volver a negro
 
+            # Datos secundarios del reclamo
             y -= 15; c.setFont("Helvetica", 10)
             c.drawString(40, y, f"Dirección: {reclamo['Dirección']}")
             y -= 12; c.drawString(40, y, f"Tel: {reclamo['Teléfono']} - Precinto: {reclamo.get('N° de Precinto', 'N/A')}")
             y -= 12; c.drawString(40, y, f"Tipo: {reclamo['Tipo de reclamo']}")
             y -= 12; d_txt = str(reclamo['Detalles'])[:90] + "..." if len(str(reclamo['Detalles'])) > 90 else str(reclamo['Detalles'])
             c.drawString(40, y, f"Detalles: {d_txt}")
+            
             y -= 20; c.line(40, y, width - 40, y); y -= 25
 
+            # Salto de página
             if y < 130:
                 agregar_pie_pdf(c, width, height)
                 c.showPage(); y = height - 40
 
-        # Materiales
+        # Materiales al final de la página del grupo
         m_g = materiales_por_grupo.get(grupo, {})
         if m_g:
             y -= 10; c.setFont("Helvetica-Bold", 12); c.drawString(40, y, "Materiales estimados:"); y -= 15
@@ -408,5 +396,6 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             for m, cant in m_g.items():
                 c.drawString(40, y, f"- {cant} {m.replace('_', ' ').title()}"); y -= 12
 
-    c.save(); buffer.seek(0)
-    st.download_button("📄 Descargar PDF con QR", buffer, "planificacion_gps.pdf", "application/pdf")
+    c.save()
+    buffer.seek(0)
+    st.download_button(label="📄 Descargar PDF con QR", data=buffer, file_name=f"Asignaciones_{hoy}.pdf", mime="application/pdf")
