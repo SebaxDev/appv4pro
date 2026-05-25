@@ -908,8 +908,8 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             )
 
             qr_x = width - 140
-            qr_y = inicio_y - 70
-            qr_size = 70
+            qr_y = inicio_y - 85
+            qr_size = 100
 
             if geo_data:
 
