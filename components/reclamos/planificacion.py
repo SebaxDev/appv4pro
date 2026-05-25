@@ -908,7 +908,7 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             )
 
             qr_x = width - 140
-            qr_y = inicio_y - 85
+            qr_y = inicio_y - 70
             qr_size = 90
 
             if geo_data:
@@ -929,18 +929,11 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                         mask='auto'
                     )
 
-                    c.setFont("Helvetica", 8)
-                    c.drawCentredString(
-                        qr_x + (qr_size / 2),
-                        qr_y - 10,
-                        "Google Maps"
-                    )
-
                 else:
                     c.setFont("Helvetica", 9)
                     c.drawString(
                         qr_x,
-                        inicio_y - 20,
+                        inicio_y - 40,
                         "QR inválido"
                     )
 
@@ -948,7 +941,7 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                 c.setFont("Helvetica", 9)
                 c.drawString(
                     qr_x,
-                    inicio_y - 20,
+                    inicio_y - 40,
                     "Sin georreferencia"
                 )
 
