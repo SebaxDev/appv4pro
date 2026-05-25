@@ -11,3 +11,4 @@ Pillow
 passlib
 bcrypt
 unidecode
+qrcode

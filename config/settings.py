@@ -50,7 +50,8 @@ COLUMNAS_RECLAMOS = [
 
 COLUMNAS_CLIENTES = [
     "Nº Cliente", "Sector", "Nombre", "Dirección", 
-    "Teléfono", "N° de Precinto", "ID Cliente", "Última Modificación", "Anotaciones"
+    "Teléfono", "N° de Precinto", "ID Cliente", "Última Modificación", 
+    "Anotaciones", "Latitud", "Longitud"
 ]
 
 COLUMNAS_USUARIOS = [
