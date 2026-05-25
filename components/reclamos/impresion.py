@@ -562,7 +562,7 @@ def _generar_pdf_en_curso_detallado(df_merged, usuario=None):
     
     # Ahora agrupar: encontrar qué técnicos comparten TODOS los mismos reclamos
     # Mapa: técnico -> set de IDs de reclamos
-    tecnico_a_reclamos = defaultdict(set)
+    tecnico_a_reclamo = defaultdict(set)
     for idx, row in df_en_curso.iterrows():
         reclamo_id = row.get("ID Reclamo", idx)
         tecnicos_str = row.get("Técnico", "")

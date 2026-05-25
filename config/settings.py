@@ -100,16 +100,44 @@ OPCIONES_PERMISOS = {
 SECTORES_DISPONIBLES = [str(n) for n in range(1, 18)]
 
 TECNICOS_DISPONIBLES = [
-    "Braian", "Conejo", "Juan", "Junior", "Maxi", 
-    "Ramon", "Roque", "Viki", "Oficina", "Base"
+    "Conejo", "Juan", "Junior", "Maxi", "Marki",
+    "Ramon", "Rene", "Roque", "Viki", "Oficina", "Base"
 ]
 
 TIPOS_RECLAMO = [
-    "Conexion C+I", "Conexion Cable", "Conexion Internet", "Suma Internet",
-    "Suma Cable", "Reconexion", "Reconexion C+I", "Reconexion Internet", "Reconexion Cable", "Sin Señal Ambos", "Sin Señal Cable",
-    "Sin Señal Internet", "Sintonia", "Sintonizar HD", "Interferencia", "Traslado",
-    "Extension", "Extension x2", "Extension x3", "Extension x4", "Cambio de Ficha",
-    "Cambio de Equipo", "Reclamo", "Cambio de Plan", "Desconexion a Pedido"
+    "— Seleccione un Tipo de Reclamo —",
+    "Cables Bajos",
+    "Caja Sin Señal",
+    "Cambiar Bajada",
+    "Cambio de Equipo",
+    "Cambio de Ficha",
+    "Cambio de Plan",
+    "Conexion C+I",
+    "Conexion Cable",
+    "Conexion Internet",
+    "Desconexion a Pedido",
+    "Desconectar Servicio",
+    "Extension",
+    "Extension x2",
+    "Extension x3",
+    "Extension x4",
+    "Interferencia",
+    "Internet Lento",
+    "Mejorar Señal",
+    "Poco Alcance",
+    "Reclamo",
+    "Reconexion C+I",
+    "Reconexion Cable",
+    "Reconexion Internet",
+    "Sin Señal Ambos",
+    "Sin Señal Cable",
+    "Sin Señal Internet",
+    "Sintonia",
+    "Sintonizar HD",
+    "Suma Cable",
+    "Suma Internet",
+    "Trabajo de Linea",
+    "Traslado"
 ]
 
 # --------------------------
@@ -144,7 +172,6 @@ MATERIALES_POR_RECLAMO = {
     "Conexion Internet": {"router_internet": 1, "conector": 2},
     "Suma Internet": {"router_catv": 1, "conector": 2, "ficha_f": 2},
     "Suma Cable": {"router_catv": 1, "ficha_f": 2},
-    "Reconexion": {},
     "Reconexion C+I": {"router_catv": 1, "conector": 2},
     "Reconexion Internet": {"router_internet": 1, "conector": 2},
     "Reconexion Cable": {"ficha_f": 2, "micro": 1},
