@@ -933,6 +933,7 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                     c.drawCentredString(
                         qr_x + (qr_size / 2),
                         qr_y - 10,
+                        "Google Maps"
                     )
 
                 else:
