@@ -18,8 +18,6 @@ from utils.date_utils import ahora_argentina, format_fecha
 def _to_datetime_clean(series: pd.Series) -> pd.Series:
     s = series.astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     s = s.replace({"": None, "nan": None, "NaN": None, "NONE": None, "None": None})
-    # FIX: infer_datetime_format fue eliminado en pandas 2.2+
-    # Se reemplaza por format='mixed' que es el sucesor oficial
     out = pd.to_datetime(s, errors="coerce", dayfirst=True, format='mixed')
     if pd.api.types.is_datetime64tz_dtype(out):
         out = out.dt.tz_convert(None).dt.tz_localize(None)
