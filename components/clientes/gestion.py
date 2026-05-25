@@ -45,9 +45,40 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role)
             st.markdown(f"**📍 Dirección:** {cliente.get('Dirección', 'N/A')}")
             st.markdown(f"**📞 Teléfono:** {cliente.get('Teléfono', 'N/A')}")
             
+            # ==========================================
+            # BLOQUE DE PRECINTO (COLUMNA F)
+            # ==========================================
+            precinto = str(cliente.get("N° de Precinto", "")).strip()
+            has_precinto = precinto not in ("", "nan", "None")
+            
+            if has_precinto:
+                st.markdown(f"**🔒 N° de Precinto:** {precinto}")
+            else:
+                st.markdown("**🔒 N° de Precinto:** No registrado")
+                with st.form("form_cargar_precinto"):
+                    new_precinto = st.text_input("Ingresar N° de Precinto")
+                    submit_precinto = st.form_submit_button("💾 Guardar Precinto")
+                    
+                    if submit_precinto:
+                        if not new_precinto.strip():
+                            st.error("❌ Debés ingresar un número de precinto.")
+                        else:
+                            row_idx = cliente.name + 2
+                            updates = [
+                                {"range": f"F{row_idx}", "values": [[new_precinto.strip()]]}
+                            ]
+                            success, error = dm_batch_update_sheet(sheet_clientes, updates)
+                            if success:
+                                st.success("✅ Precinto guardado correctamente.")
+                                return {"needs_refresh": True}
+                            else:
+                                st.error(f"❌ Error al guardar en la hoja: {error}")
+
             st.markdown("---")
             
-            # Verificar Geolocalización (Columnas J y K -> Latitud y Longitud)
+            # ==========================================
+            # BLOQUE DE GEOLOCALIZACIÓN (COLUMNAS J y K)
+            # ==========================================
             lat = str(cliente.get("Latitud", "")).strip()
             lon = str(cliente.get("Longitud", "")).strip()
             
