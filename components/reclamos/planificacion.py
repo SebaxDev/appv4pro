@@ -846,7 +846,7 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
     # ============================================================
     # DIMENSIONES OPTIMIZADAS
     # ============================================================
-    qr_size = 55
+    qr_size = 70
     qr_x = width - 45 - qr_size       # QR alineado al margen derecho
     max_text_width = qr_x - 50         # Texto desde x=40 hasta antes del QR
 
