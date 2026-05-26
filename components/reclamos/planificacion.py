@@ -786,14 +786,77 @@ def _generar_qr_google_maps(latitud, longitud):
     except Exception:
         return None
 
+def _wrap_text(text, font_name, font_size, max_width, canvas_obj):
+    """
+    Envuelve texto en múltiples líneas que caben dentro de max_width.
+    Retorna una lista de strings, cada uno cabe en el ancho especificado.
+    """
+    if not text or not str(text).strip():
+        return ['']
+    
+    text = str(text).strip()
+    
+    if canvas_obj.stringWidth(text, font_name, font_size) <= max_width:
+        return [text]
+    
+    words = text.split(' ')
+    lines = []
+    current_line = ''
+    
+    for word in words:
+        if current_line:
+            test_line = f"{current_line} {word}"
+        else:
+            test_line = word
+        
+        text_width = canvas_obj.stringWidth(test_line, font_name, font_size)
+        
+        if text_width <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            
+            if canvas_obj.stringWidth(word, font_name, font_size) > max_width:
+                chars = ''
+                for char in word:
+                    if canvas_obj.stringWidth(chars + char, font_name, font_size) <= max_width:
+                        chars += char
+                    else:
+                        if chars:
+                            lines.append(chars)
+                        chars = char
+                current_line = chars
+            else:
+                current_line = word
+    
+    if current_line:
+        lines.append(current_line)
+    
+    return lines if lines else ['']
+
 def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes):
-    """Genera un PDF con las asignaciones de grupos y QR de ubicación"""
+    """Genera un PDF con las asignaciones de grupos y QR de ubicación - Optimizado para 7-8 reclamos por hoja"""
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    y = height - 40
     hoy = datetime.now().strftime('%d/%m/%Y')
+
+    # ============================================================
+    # DIMENSIONES OPTIMIZADAS
+    # ============================================================
+    qr_size = 55
+    qr_x = width - 45 - qr_size       # QR alineado al margen derecho
+    max_text_width = qr_x - 50         # Texto desde x=40 hasta antes del QR
+
+    # Fuentes y alturas de línea
+    font_nombre = "Helvetica-Bold"
+    font_body = "Helvetica"
+    size_nombre = 12
+    size_body = 10
+    line_h_nombre = 14
+    line_h_body = 11
 
     for grupo in GRUPOS_POSIBLES[:grupos_activos]:
         reclamos_ids = st.session_state.asignaciones_grupos[grupo]
@@ -803,77 +866,53 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
 
         tecnicos = st.session_state.tecnicos_grupos[grupo]
 
+        # Nueva página para cada grupo
         agregar_pie_pdf(c, width, height)
         c.showPage()
 
         y = height - 40
 
+        # ---- HEADER DEL GRUPO ----
         tipos = df_pendientes[
             df_pendientes["ID Reclamo"].isin(reclamos_ids)
         ]["Tipo de reclamo"].value_counts()
 
-        resumen_tipos = " - ".join(
-            [f"{v} {k}" for k, v in tipos.items()]
-        )
+        resumen_tipos = " - ".join([f"{v} {k}" for k, v in tipos.items()])
 
-        c.setFont("Helvetica-Bold", 16)
+        c.setFont("Helvetica-Bold", 14)
         c.drawString(
-            40,
-            y,
+            40, y,
             f"{grupo} - Técnicos: {', '.join(tecnicos)} (Asignado el {hoy})"
         )
+        y -= 18
 
-        y -= 20
-
-        c.setFont("Helvetica", 12)
+        c.setFont("Helvetica", 11)
         c.drawString(40, y, resumen_tipos)
+        y -= 22
 
-        y -= 25
-
+        # ---- RECLAMOS ----
         for reclamo_id in reclamos_ids:
 
             reclamo_data = df_pendientes[
                 df_pendientes["ID Reclamo"] == reclamo_id
             ]
-
             if reclamo_data.empty:
                 continue
 
             reclamo = reclamo_data.iloc[0]
 
-            # Altura reservada para cada reclamo
-            altura_bloque = 120
-
-            if y < altura_bloque:
-                agregar_pie_pdf(c, width, height)
-                c.showPage()
-
-                y = height - 40
-
-                c.setFont("Helvetica-Bold", 16)
-                c.drawString(40, y, f"{grupo} (cont.)")
-
-                y -= 25
-
-            inicio_y = y
-
-            # =========================
-            # DATOS DEL RECLAMO
-            # =========================
-
-            c.setFont("Helvetica-Bold", 14)
+            # ========================================================
+            # PRE-COMPUTAR LÍNEAS CON WRAP
+            # ========================================================
 
             nombre_linea = (
                 f"{reclamo['Nº Cliente']} - "
                 f"{reclamo['Nombre']} "
                 f"({reclamo['Sector']})"
             )
-
-            c.drawString(40, y, nombre_linea)
-
-            y -= 15
-
-            c.setFont("Helvetica", 11)
+            nombre_wrapped = _wrap_text(
+                nombre_linea, font_nombre, size_nombre, max_text_width, c
+            )
 
             fecha_pdf = (
                 reclamo['Fecha y hora'].strftime('%d/%m/%Y %H:%M')
@@ -881,107 +920,166 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                 else 'Sin fecha'
             )
 
-            detalles = str(reclamo.get('Detalles', ''))
+            direccion = str(reclamo.get('Dirección', ''))
+            telefono = str(reclamo.get('Teléfono', ''))
+            precinto = str(reclamo.get('N° de Precinto', 'N/A'))
 
-            if len(detalles) > 100:
-                detalles = detalles[:100] + "..."
+            detalles_raw = str(reclamo.get('Detalles', '')).strip()
+            if detalles_raw == 'nan':
+                detalles_raw = ''
+            if len(detalles_raw) > 200:
+                detalles_raw = detalles_raw[:200] + "..."
 
-            lineas = [
-                f"Fecha: {fecha_pdf}",
-                f"Dirección: {reclamo['Dirección']}",
-                f"Tel: {reclamo['Teléfono']} - Precinto: {reclamo.get('N° de Precinto', 'N/A')}",
-                f"Tipo: {reclamo['Tipo de reclamo']}",
-                f"Detalles: {detalles}",
-            ]
+            fecha_wrapped = [f"Fecha: {fecha_pdf}"]
+            direccion_wrapped = _wrap_text(
+                f"Dirección: {direccion}", font_body, size_body, max_text_width, c
+            )
+            tel_wrapped = _wrap_text(
+                f"Tel: {telefono} - Precinto: {precinto}",
+                font_body, size_body, max_text_width, c
+            )
+            tipo_wrapped = [f"Tipo: {reclamo['Tipo de reclamo']}"]
 
-            for linea in lineas:
-                c.drawString(40, y, linea)
-                y -= 12
+            # Solo incluir Detalles si tiene contenido
+            if detalles_raw:
+                detalles_wrapped = _wrap_text(
+                    f"Detalles: {detalles_raw}", font_body, size_body, max_text_width, c
+                )
+            else:
+                detalles_wrapped = []
 
-            # =========================
-            # GEOLOCALIZACIÓN / QR
-            # =========================
+            # ========================================================
+            # CALCULAR ALTURA DEL BLOQUE
+            # ========================================================
 
-            geo_data = _obtener_datos_geolocalizacion(
-                df_clientes,
-                reclamo['Nº Cliente']
+            total_body_lines = (
+                len(fecha_wrapped) + len(direccion_wrapped)
+                + len(tel_wrapped) + len(tipo_wrapped)
+                + len(detalles_wrapped)
             )
 
-            qr_x = width - 140
-            qr_y = inicio_y - 70
-            qr_size = 90
+            altura_bloque = (
+                len(nombre_wrapped) * line_h_nombre
+                + total_body_lines * line_h_body
+                + 20  # separador (6 gap + línea + 14 after)
+            )
+
+            # Verificar espacio en página
+            if y < altura_bloque + 15:
+                agregar_pie_pdf(c, width, height)
+                c.showPage()
+                y = height - 40
+
+                c.setFont("Helvetica-Bold", 14)
+                c.drawString(40, y, f"{grupo} (cont.)")
+                y -= 22
+
+            inicio_y = y
+
+            # ========================================================
+            # DIBUJAR NOMBRE (wrappeado)
+            # ========================================================
+
+            c.setFont(font_nombre, size_nombre)
+            for nl in nombre_wrapped:
+                c.drawString(40, y, nl)
+                y -= line_h_nombre
+
+            # ========================================================
+            # DIBUJAR DATOS (wrappeados)
+            # ========================================================
+
+            c.setFont(font_body, size_body)
+
+            for linea in fecha_wrapped:
+                c.drawString(40, y, linea)
+                y -= line_h_body
+
+            for linea in direccion_wrapped:
+                c.drawString(40, y, linea)
+                y -= line_h_body
+
+            for linea in tel_wrapped:
+                c.drawString(40, y, linea)
+                y -= line_h_body
+
+            for linea in tipo_wrapped:
+                c.drawString(40, y, linea)
+                y -= line_h_body
+
+            for linea in detalles_wrapped:
+                c.drawString(40, y, linea)
+                y -= line_h_body
+
+            # ========================================================
+            # QR (alineado arriba del bloque)
+            # ========================================================
+
+            qr_y = inicio_y - qr_size
+
+            geo_data = _obtener_datos_geolocalizacion(
+                df_clientes, reclamo['Nº Cliente']
+            )
 
             if geo_data:
-
                 qr_img = _generar_qr_google_maps(
-                    geo_data['latitud'],
-                    geo_data['longitud']
+                    geo_data['latitud'], geo_data['longitud']
                 )
-
                 if qr_img:
                     c.drawImage(
-                        qr_img,
-                        qr_x,
-                        qr_y,
-                        width=qr_size,
-                        height=qr_size,
-                        preserveAspectRatio=True,
-                        mask='auto'
+                        qr_img, qr_x, qr_y,
+                        width=qr_size, height=qr_size,
+                        preserveAspectRatio=True, mask='auto'
                     )
-
                 else:
-                    c.setFont("Helvetica", 9)
-                    c.drawString(
-                        qr_x,
-                        inicio_y - 40,
+                    c.setFont("Helvetica", 8)
+                    c.drawCentredString(
+                        qr_x + qr_size / 2,
+                        inicio_y - qr_size / 2 - 3,
                         "QR inválido"
                     )
-
             else:
-                c.setFont("Helvetica", 9)
-                c.drawString(
-                    qr_x,
-                    inicio_y - 40,
+                c.setFont("Helvetica", 8)
+                c.drawCentredString(
+                    qr_x + qr_size / 2,
+                    inicio_y - qr_size / 2 - 3,
                     "Sin georreferencia"
                 )
 
-            # =========================
-            # SEPARADOR
-            # =========================
+            # ========================================================
+            # SEPARADOR PARCIAL: no cruza el área del QR
+            # ========================================================
+            # La línea va desde x=40 hasta antes del QR,
+            # así nunca choca con el QR ni necesitamos
+            # empujar el separador hacia abajo esperando al QR.
 
-            y -= 10
+            y -= 6
+            c.line(40, y, qr_x - 8, y)   # ← línea PARTIAL
+            y -= 14
 
-            c.line(40, y, width - 40, y)
-
-            y -= 20
+        # ========================================================
+        # MATERIALES MÍNIMOS
+        # ========================================================
 
         materiales = materiales_por_grupo.get(grupo, {})
 
         if materiales:
-
-            y -= 10
-
-            c.setFont("Helvetica-Bold", 12)
+            y -= 8
+            c.setFont("Helvetica-Bold", 11)
             c.drawString(40, y, "Materiales mínimos estimados:")
-
-            y -= 15
-
-            c.setFont("Helvetica", 11)
-
+            y -= 14
+            c.setFont(font_body, size_body)
             for mat, cant in materiales.items():
                 c.drawString(
-                    40,
-                    y,
+                    40, y,
                     f"- {cant} {mat.replace('_', ' ').title()}"
                 )
-                y -= 12
+                y -= line_h_body
 
-        y -= 20
+        y -= 15
 
     agregar_pie_pdf(c, width, height)
-
     c.save()
-
     buffer.seek(0)
 
     st.download_button(
