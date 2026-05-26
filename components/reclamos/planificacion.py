@@ -836,7 +836,7 @@ def _wrap_text(text, font_name, font_size, max_width, canvas_obj):
     return lines if lines else ['']
 
 def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes):
-    """Genera un PDF con las asignaciones de grupos y QR de ubicación - Optimizado para 7-8 reclamos por hoja"""
+    """Genera un PDF con las asignaciones de grupos y QR centrado por reclamo"""
 
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
@@ -844,11 +844,11 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
     hoy = datetime.now().strftime('%d/%m/%Y')
 
     # ============================================================
-    # DIMENSIONES OPTIMIZADAS
+    # DIMENSIONES
     # ============================================================
     qr_size = 70
-    qr_x = width - 45 - qr_size       # QR alineado al margen derecho
-    max_text_width = qr_x - 50         # Texto desde x=40 hasta antes del QR
+    qr_x = width - 45 - qr_size           # QR alineado al margen derecho
+    max_text_width = qr_x - 50             # Texto desde x=40 hasta antes del QR
 
     # Fuentes y alturas de línea
     font_nombre = "Helvetica-Bold"
@@ -940,7 +940,6 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             )
             tipo_wrapped = [f"Tipo: {reclamo['Tipo de reclamo']}"]
 
-            # Solo incluir Detalles si tiene contenido
             if detalles_raw:
                 detalles_wrapped = _wrap_text(
                     f"Detalles: {detalles_raw}", font_body, size_body, max_text_width, c
@@ -949,7 +948,7 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                 detalles_wrapped = []
 
             # ========================================================
-            # CALCULAR ALTURA DEL BLOQUE
+            # CALCULAR ALTURA DEL BLOQUE DE TEXTO
             # ========================================================
 
             total_body_lines = (
@@ -958,14 +957,17 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                 + len(detalles_wrapped)
             )
 
-            altura_bloque = (
+            text_height = (
                 len(nombre_wrapped) * line_h_nombre
                 + total_body_lines * line_h_body
-                + 20  # separador (6 gap + línea + 14 after)
             )
 
+            # Altura total estimada del bloque (texto + separador)
+            # Debe ser al menos tan alta como el QR
+            block_height = max(text_height, qr_size) + 20
+
             # Verificar espacio en página
-            if y < altura_bloque + 15:
+            if y < block_height + 15:
                 agregar_pie_pdf(c, width, height)
                 c.showPage()
                 y = height - 40
@@ -1011,11 +1013,25 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                 c.drawString(40, y, linea)
                 y -= line_h_body
 
-            # ========================================================
-            # QR (alineado arriba del bloque)
-            # ========================================================
+            # Guardar dónde termina el texto
+            text_end_y = y
 
-            qr_y = inicio_y - qr_size
+            # ========================================================
+            # QR CENTRADO VERTICALMENTE RESPECTO AL TEXTO
+            # ========================================================
+            # El centro del QR = centro del bloque de texto
+            #
+            #   inicio_y  ──── inicio del texto
+            #      │
+            #      │  text_height / 2  ← centro del texto
+            #      │
+            #   inicio_y - text_height ──── fin del texto
+            #
+            #   QR se posiciona para que su centro coincida
+            #   con el centro del texto.
+
+            qr_center_y = inicio_y - (text_height / 2)
+            qr_y = qr_center_y - (qr_size / 2)
 
             geo_data = _obtener_datos_geolocalizacion(
                 df_clientes, reclamo['Nº Cliente']
@@ -1035,27 +1051,31 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                     c.setFont("Helvetica", 8)
                     c.drawCentredString(
                         qr_x + qr_size / 2,
-                        inicio_y - qr_size / 2 - 3,
+                        qr_center_y - 3,
                         "QR inválido"
                     )
             else:
                 c.setFont("Helvetica", 8)
                 c.drawCentredString(
                     qr_x + qr_size / 2,
-                    inicio_y - qr_size / 2 - 3,
+                    qr_center_y - 3,
                     "Sin georreferencia"
                 )
 
             # ========================================================
-            # SEPARADOR PARCIAL: no cruza el área del QR
+            # SEPARADOR PARCIAL
             # ========================================================
-            # La línea va desde x=40 hasta antes del QR,
-            # así nunca choca con el QR ni necesitamos
-            # empujar el separador hacia abajo esperando al QR.
+            # La línea va desde x=40 hasta antes del QR.
+            # Se posiciona debajo del elemento más bajo (texto o QR),
+            # así nunca corta el QR ni se superpone.
 
-            y -= 6
-            c.line(40, y, qr_x - 8, y)   # ← línea PARTIAL
-            y -= 14
+            qr_bottom_y = qr_y
+            lowest_y = min(text_end_y, qr_bottom_y)
+
+            sep_y = lowest_y - 6
+            c.line(40, sep_y, qr_x - 8, sep_y)
+
+            y = sep_y - 14
 
         # ========================================================
         # MATERIALES MÍNIMOS
@@ -1088,4 +1108,3 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
         file_name="asignaciones_grupos.pdf",
         mime="application/pdf"
     )
-    
