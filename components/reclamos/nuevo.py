@@ -47,7 +47,7 @@ def _verificar_reclamos_activos(nro_cliente, df_reclamos):
     reclamos_cliente = df_reclamos[df_reclamos["Nº Cliente"] == nro_cliente]
     
     # Convertir estados a minúsculas para comparación case-insensitive
-    estados_activos = ["pendiente", "en curso"]
+    estados_activos = ["pendiente", "en curso", "verificado"]
     reclamos_activos = reclamos_cliente[
         reclamos_cliente["Estado"].str.strip().str.lower().isin(estados_activos) |
         (reclamos_cliente["Tipo de reclamo"].str.strip().str.lower() == "desconexion a pedido")
