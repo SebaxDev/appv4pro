@@ -21,7 +21,7 @@ import qrcode
 from reportlab.lib.utils import ImageReader
 from PIL import Image
 
-GRUPOS_POSIBLES = [f"Grupo {letra}" for letra in "ABCDE"]
+GRUPOS_POSIBLES = [f"Grupo {letra}" for letra in "ABCDEF"]
 
 def generar_id_unico():
     """Genera un ID único para reclamos y clientes"""
@@ -496,7 +496,7 @@ def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=N
         inicializar_estado_grupos()
         _limpiar_asignaciones(df_reclamos)
 
-        grupos_activos = st.slider("🔢 Cantidad de grupos de trabajo activos", 1, 5, 2)
+        grupos_activos = st.slider("🔢 Cantidad de grupos de trabajo activos", 1, 6, 2)
 
         modo_distribucion = st.selectbox(
             "📊 Elegí el modo de distribución",
