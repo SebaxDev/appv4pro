@@ -905,10 +905,17 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             # PRE-COMPUTAR LÍNEAS CON WRAP
             # ========================================================
 
+            # Calcular si tiene más de 48 horas
+            sufijo_48 = ""
+            if pd.notna(reclamo['Fecha y hora']):
+                horas = (datetime.now() - reclamo['Fecha y hora']).total_seconds() / 3600
+                if horas > 48:
+                    sufijo_48 = " +48"
+
             nombre_linea = (
                 f"{reclamo['Nº Cliente']} - "
                 f"{reclamo['Nombre']} "
-                f"({reclamo['Sector']})"
+                f"({reclamo['Sector']}){sufijo_48}"
             )
             nombre_wrapped = _wrap_text(
                 nombre_linea, font_nombre, size_nombre, max_text_width, c
