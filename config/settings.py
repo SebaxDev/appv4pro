@@ -45,13 +45,13 @@ COLUMNAS_RECLAMOS = [
     "Fecha y hora", "Nº Cliente", "Sector", "Nombre", 
     "Dirección", "Teléfono", "Tipo de reclamo", "Detalles", 
     "Estado", "Técnico", "N° de Precinto", "Atendido por", 
-    "Fecha_formateada", "Anotaciones", "ID Reclamo"
+    "Fecha_formateada", "Anotaciones", "ID Reclamo", "Plan"
 ]
 
 COLUMNAS_CLIENTES = [
     "Nº Cliente", "Sector", "Nombre", "Dirección", 
     "Teléfono", "N° de Precinto", "ID Cliente", "Última Modificación", 
-    "Anotaciones", "Latitud", "Longitud"
+    "Anotaciones", "Latitud", "Longitud", "Plan"
 ]
 
 COLUMNAS_USUARIOS = [
@@ -141,6 +141,23 @@ TIPOS_RECLAMO = [
 ]
 
 # --------------------------
+# PLANES DISPONIBLES
+# --------------------------
+PLANES_DISPONIBLES = [
+    "— Seleccione un Plan —",
+    "CABLE SOLO",
+    "INTERNET SOLO 50MB",
+    "INTERNET SOLO 100MB",
+    "INTERNET SOLO 200MB",
+    "INTERNET SOLO +200MB",
+    "CABLE + INTERNET 50MB",
+    "CABLE + INTERNET 100MB",
+    "CABLE + INTERNET 200MB",
+    "CABLE + INTERNET +200MB",
+    "PLAN FUSION CABLE"
+]
+
+# --------------------------
 # MATERIALES Y EQUIPOS POR RECLAMO Y SECTOR
 # --------------------------
 
@@ -211,7 +228,7 @@ def rol_tiene_permiso(rol, permiso_requerido):
     """Verifica si un rol tiene un permiso específico"""
     if permiso_requerido == 'admin':
         return rol == 'admin'  # Solo los admin pueden gestionar otros admin
-    
+
     permisos = obtener_permisos_por_rol(rol)
     return '*' in permisos or permiso_requerido in permisos
 

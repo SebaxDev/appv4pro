@@ -931,6 +931,18 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
             telefono = str(reclamo.get('Teléfono', ''))
             precinto = str(reclamo.get('N° de Precinto', 'N/A'))
 
+            # Obtener plan del cliente (del reclamo o de la hoja Clientes)
+            plan_cliente = str(reclamo.get('Plan', '')).strip()
+            if not plan_cliente or plan_cliente.lower() in ('nan', 'none', ''):
+                if df_clientes is not None and not df_clientes.empty:
+                    cliente_match = df_clientes[
+                        df_clientes["Nº Cliente"].astype(str).str.strip() == str(reclamo.get('Nº Cliente', '')).strip()
+                    ]
+                    if not cliente_match.empty:
+                        plan_cliente = str(cliente_match.iloc[0].get("Plan", "N/A")).strip() or "N/A"
+                else:
+                    plan_cliente = "N/A"
+
             detalles_raw = str(reclamo.get('Detalles', '')).strip()
             if detalles_raw == 'nan':
                 detalles_raw = ''
@@ -942,7 +954,7 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                 f"Dirección: {direccion}", font_body, size_body, max_text_width, c
             )
             tel_wrapped = _wrap_text(
-                f"Tel: {telefono} - Precinto: {precinto}",
+                f"Tel: {telefono} - Precinto: {precinto} - Plan: {plan_cliente}",
                 font_body, size_body, max_text_width, c
             )
             tipo_wrapped = [f"Tipo: {reclamo['Tipo de reclamo']}"]
