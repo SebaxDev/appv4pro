@@ -35,7 +35,7 @@ def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_cli
     updates_reclamos = []
     updates_clientes = []
     uuids_generados = False
-    
+
     try:
         # Verificar reclamos sin UUID
         if 'ID Reclamo' in df_reclamos.columns:
@@ -44,7 +44,7 @@ def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_cli
                 (df_reclamos['ID Reclamo'] == '') |
                 (df_reclamos['ID Reclamo'].astype(str).str.strip() == '')
             ]
-            
+
             if not reclamos_sin_uuid.empty:
                 for _, row in reclamos_sin_uuid.iterrows():
                     nuevo_uuid = generar_id_unico()
@@ -52,7 +52,7 @@ def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_cli
                         "range": f"P{row.name + 2}",  # Columna P es ID Reclamo
                         "values": [[nuevo_uuid]]
                     })
-        
+
         # Verificar clientes sin UUID
         if 'ID Cliente' in df_clientes.columns:
             clientes_sin_uuid = df_clientes[
@@ -60,7 +60,7 @@ def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_cli
                 (df_clientes['ID Cliente'] == '') |
                 (df_clientes['ID Cliente'].astype(str).str.strip() == '')
             ]
-            
+
             if not clientes_sin_uuid.empty:
                 for _, row in clientes_sin_uuid.iterrows():
                     nuevo_uuid = generar_id_unico()
@@ -68,7 +68,7 @@ def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_cli
                         "range": f"G{row.name + 2}",  # Columna G es ID Cliente
                         "values": [[nuevo_uuid]]
                     })
-        
+
         # Aplicar actualizaciones si hay alguna
         if updates_reclamos:
             success, error = api_manager.safe_sheet_operation(
@@ -82,7 +82,7 @@ def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_cli
                 st.success(f"✅ Se generaron {len(updates_reclamos)} UUIDs para reclamos")
             else:
                 st.error(f"❌ Error al generar UUIDs para reclamos: {error}")
-        
+
         if updates_clientes:
             success, error = api_manager.safe_sheet_operation(
                 batch_update_sheet, 
@@ -95,30 +95,30 @@ def _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_cli
                 st.success(f"✅ Se generaron {len(updates_clientes)} UUIDs para clientes")
             else:
                 st.error(f"❌ Error al generar UUIDs para clientes: {error}")
-        
+
         if not updates_reclamos and not updates_clientes:
             st.info("ℹ️ Todos los reclamos y clientes ya tienen UUIDs asignados")
-            
+
     except Exception as e:
         st.error(f"❌ Error al verificar/generar UUIDs: {str(e)}")
-    
+
     return uuids_generados
 
 # Mapeo de sectores cercanos por zona
 SECTORES_VECINOS = {
     "Zona 1": ["1", "2", "3", "4"],
-    "Zona 2": ["5", "6", "7", "8"],
-    "Zona 3": ["9", "10"],
-    "Zona 4": ["11", "12", "13"],
-    "Zona 5": ["14", "15", "16", "17"]
+    "Zona 2": ["6", "7", "8"],
+    "Zona 3": ["5", "9", "10"],
+    "Zona 4": ["11", "12", "13", "14"],
+    "Zona 5": ["15", "16", "17"]
 }
 
 ZONAS_COMPATIBLES = {
-    "Zona 1": ["Zona 3", "Zona 5"],
-    "Zona 2": ["Zona 4"],
-    "Zona 3": ["Zona 1", "Zona 2", "Zona 4", "Zona 5"],
-    "Zona 4": ["Zona 2"],
-    "Zona 5": ["Zona 1", "Zona 3"]
+    "Zona 1": ["Zona 3"],                    # 4↔5 (sectores consecutivos)
+    "Zona 2": ["Zona 3"],                    # 5↔6 y 8↔9 (sectores consecutivos)
+    "Zona 3": ["Zona 1", "Zona 2", "Zona 4"],  # HUB: toca 1, 2 y 4
+    "Zona 4": ["Zona 3", "Zona 5"],          # 10↔11 y 14↔15 (sectores consecutivos)
+    "Zona 5": ["Zona 4"],                    # 14↔15 (sectores consecutivos)
 }
 
 def inicializar_estado_grupos():
@@ -133,77 +133,100 @@ def inicializar_estado_grupos():
 
 def agrupar_zonas_completas(zonas, grupos, df_reclamos, permitir_redistribucion=True):
     """
-    Distribuye ZONAS COMPLETAS entre grupos, con redistribución opcional para muchos grupos
+    Versión mejorada:
+    - Greedy con penalización por incompatibilidad geográfica
+    - Redistribución multi-ronda
+    - Umbral dinámico basado en carga objetiva
     """
     if not grupos or not zonas:
         return {g: [] for g in grupos}
-    
+
     # Calcular reclamos por zona
     reclamos_por_zona = {}
     for zona in zonas:
         sectores_zona = SECTORES_VECINOS.get(zona, [])
-        total_reclamos = len(df_reclamos[
+        total = len(df_reclamos[
             df_reclamos["Sector"].astype(str).isin(sectores_zona) &
             (df_reclamos["Estado"] == "Pendiente")
         ])
-        reclamos_por_zona[zona] = total_reclamos
-    
-    # Ordenar zonas por cantidad de reclamos (descendente)
+        reclamos_por_zona[zona] = total
+
+    total_reclamos = sum(reclamos_por_zona.values())
+    carga_objetivo = total_reclamos / len(grupos) if grupos else 0
+
+    # Ordenar zonas de mayor a menor
     zonas_ordenadas = sorted(zonas, key=lambda z: reclamos_por_zona[z], reverse=True)
-    
-    # Inicializar
+
     asignacion = {g: [] for g in grupos}
     carga_actual = {g: 0 for g in grupos}
-    
-    # Asignar zonas grandes primero
+
+    # Greedy mejorado: carga + penalización por incompatibilidad
     for zona in zonas_ordenadas:
-        # Encontrar el grupo con menor carga ACTUAL
-        grupo_elegido = min(grupos, key=lambda g: carga_actual[g])
-        
-        # Asignar la ZONA COMPLETA a este grupo
+        def score(grupo):
+            penalizacion = 0
+            for z_asignada in asignacion[grupo]:
+                if zona != z_asignada:
+                    compat = ZONAS_COMPATIBLES.get(z_asignada, [])
+                    if zona not in compat:
+                        penalizacion += 100  # Muy costoso mezclar zonas lejanas
+            return carga_actual[grupo] + penalizacion
+
+        grupo_elegido = min(grupos, key=score)
         asignacion[grupo_elegido].append(zona)
         carga_actual[grupo_elegido] += reclamos_por_zona[zona]
-    
-    # VERIFICAR SI NECESITA REDISTRIBUCIÓN (solo para 4+ grupos con desbalance)
-    if (permitir_redistribucion and 
-        len(grupos) >= 4 and 
-        _necesita_redistribucion(carga_actual)):
-        
-        asignacion = _redistribuir_inteligente(asignacion, carga_actual, reclamos_por_zona, grupos)
-    
+
+    # Redistribución multi-ronda (hasta 10 iteraciones)
+    if permitir_redistribucion:
+        for _ in range(10):
+            if not _necesita_redistribucion(carga_actual, tolerancia=1):
+                break
+            asignacion, carga_actual = _redistribuir_inteligente(
+                asignacion, carga_actual, reclamos_por_zona, grupos, carga_objetivo
+            )
+
     return asignacion
 
-def _necesita_redistribucion(carga_actual):
+def _necesita_redistribucion(carga_actual, tolerancia=1):
     """Determina si la distribución necesita ajuste"""
     cargas = list(carga_actual.values())
-    return max(cargas) - min(cargas) > 2  # Diferencia mayor a 2 reclamos
+    if not cargas:
+        return False
+    return max(cargas) - min(cargas) > tolerancia
 
-def _redistribuir_inteligente(asignacion, carga_actual, reclamos_por_zona, grupos):
+def _redistribuir_inteligente(asignacion, carga_actual, reclamos_por_zona, grupos, carga_objetivo):
     """
-    Redistribución inteligente para muchos grupos:
-    - Solo mueve zonas pequeñas entre grupos vecinos geográficamente
-    - Mantiene la integridad de las zonas (no las divide)
+    Mueve zonas pequeñas del grupo más cargado al menos cargado.
+    Ahora permite zonas más grandes si el destino está muy vacío.
     """
-    # Encontrar el grupo más cargado y el menos cargado
     grupo_max = max(carga_actual.items(), key=lambda x: x[1])[0]
     grupo_min = min(carga_actual.items(), key=lambda x: x[1])[0]
-    
-    # Buscar una zona pequeña del grupo max que sea compatible con grupo_min
+
+    if carga_actual[grupo_max] - carga_actual[grupo_min] <= 1:
+        return asignacion, carga_actual
+
+    # Umbral dinámico: zonas que no hagan que el destino supere objetivo + 2
+    umbral = max(2, int(carga_objetivo * 0.7))
+
+    candidatas = []
     for zona in asignacion[grupo_max]:
-        if reclamos_por_zona[zona] <= 2:  # Solo zonas muy pequeñas
-            # Verificar compatibilidad geográfica
-            if _son_zonas_compatibles(zona, asignacion[grupo_min]):
-                # Mover la zona
+        size = reclamos_por_zona.get(zona, 0)
+        if size <= umbral:
+            candidatas.append((zona, size))
+
+    # Ordenar: más pequeñas primero
+    candidatas.sort(key=lambda x: x[1])
+
+    for zona, size in candidatas:
+        if _son_zonas_compatibles(zona, asignacion[grupo_min]):
+            # Verificar que no rompa el balance del destino
+            if carga_actual[grupo_min] + size <= carga_objetivo + 2:
                 asignacion[grupo_max].remove(zona)
                 asignacion[grupo_min].append(zona)
-                carga_actual[grupo_max] -= reclamos_por_zona[zona]
-                carga_actual[grupo_min] += reclamos_por_zona[zona]
-                
-                # Verificar si ya está balanceado
-                if not _necesita_redistribucion(carga_actual):
-                    break
-    
-    return asignacion
+                carga_actual[grupo_max] -= size
+                carga_actual[grupo_min] += size
+                break
+
+    return asignacion, carga_actual
 
 def _son_zonas_compatibles(zona, zonas_destino):
     """
@@ -211,7 +234,7 @@ def _son_zonas_compatibles(zona, zonas_destino):
     """
     if not zonas_destino:
         return True  # Siempre compatible con grupo vacío
-    
+
     for zona_dest in zonas_destino:
         if (zona in ZONAS_COMPATIBLES.get(zona_dest, []) or 
             zona_dest in ZONAS_COMPATIBLES.get(zona, [])):
@@ -220,32 +243,42 @@ def _son_zonas_compatibles(zona, zonas_destino):
 
 def distribuir_por_sector_mejorado(df_reclamos, grupos_activos):
     """
-    Distribución que respeta zonas completas
+    Distribución híbrida:
+    1. Asigna zonas completas como base (coherencia geográfica)
+    2. Balancea por reclamo individual hasta desbalance ≤ 1
+    3. Fuerza corrección si quedan grupos vacíos
     """
     df_reclamos = df_reclamos[df_reclamos["Estado"] == "Pendiente"].copy()
     grupos = GRUPOS_POSIBLES[:grupos_activos]
     asignaciones = {g: [] for g in grupos}
 
     zonas = list(SECTORES_VECINOS.keys())
-    
-    # Usar algoritmo que no divide zonas
-    zonas_por_grupo = agrupar_zonas_completas(zonas, grupos, df_reclamos)
-    
-    # Crear mapa: sector → grupo (ahora todos los sectores de una zona van al mismo grupo)
+
+    # ── FASE 1: Asignación base por zonas ──────────────────────
+    zonas_por_grupo = agrupar_zonas_completas(
+        zonas, grupos, df_reclamos
+    )
+
+    # Crear mapa sector→grupo
     sector_grupo_map = {}
     for grupo, zonas_asignadas in zonas_por_grupo.items():
         for zona in zonas_asignadas:
-            sectores = SECTORES_VECINOS.get(zona, [])
-            for sector in sectores:
+            for sector in SECTORES_VECINOS.get(zona, []):
                 sector_grupo_map[str(sector)] = grupo
 
-    # Asignar reclamos
+    # Asignar reclamos iniciales
     for _, r in df_reclamos.iterrows():
         sector = str(r.get("Sector", "")).strip()
         grupo = sector_grupo_map.get(sector)
         if grupo:
             asignaciones[grupo].append(r["ID Reclamo"])
-    
+
+    # ── FASE 2: Balanceo fino por reclamo ───────────────────────
+    asignaciones = _balancear_asignaciones(asignaciones, df_reclamos)
+
+    # ── FASE 3: Red de seguridad para grupos vacíos/desbalance ───
+    asignaciones = _forzar_balanceo_final(asignaciones, df_reclamos, grupos_activos)
+
     return asignaciones
 
 def _balancear_asignaciones(asignaciones, df_reclamos):
@@ -300,21 +333,18 @@ def _balancear_asignaciones(asignaciones, df_reclamos):
 
 def _encontrar_reclamo_transferible(reclamos_grupo_origen, grupo_origen, grupo_destino, df_reclamos, asignaciones):
     """
-    Elige el mejor reclamo para mover del grupo origen al destino:
-    - Compatible con zonas del destino (prioridad alta)
-    - Zonas más "centrales" (mayor conectividad) tienen más prioridad
-    - Si el destino aún no tiene zonas, prioriza centralidad
+    Elige el mejor reclamo para mover. Ahora también funciona cuando el destino está vacío.
     """
-    # 1) Armar zonas actuales del destino
+    # Zonas actuales del destino
     zonas_destino = []
-    reclamos_destino = df_reclamos[df_reclamos["ID Reclamo"].isin(asignaciones[grupo_destino])]
-    for _, r in reclamos_destino.iterrows():
-        sec = str(r["Sector"])
-        for z, sectores in SECTORES_VECINOS.items():
-            if sec in sectores and z not in zonas_destino:
-                zonas_destino.append(z)
+    for rid in asignaciones[grupo_destino]:
+        fila = df_reclamos[df_reclamos["ID Reclamo"] == rid]
+        if not fila.empty:
+            sec = str(fila.iloc[0]["Sector"])
+            for z, sectores in SECTORES_VECINOS.items():
+                if sec in sectores and z not in zonas_destino:
+                    zonas_destino.append(z)
 
-    # 2) Evaluar candidatos del origen
     mejor_id = None
     mejor_score = float("-inf")
 
@@ -333,28 +363,77 @@ def _encontrar_reclamo_transferible(reclamos_grupo_origen, grupo_origen, grupo_d
         if not zona_reclamo:
             continue
 
-        # Puntaje base por centralidad (cuántas zonas son compatibles con esta zona)
         centralidad = len(ZONAS_COMPATIBLES.get(zona_reclamo, []))
-        score = centralidad  # base
+        score = centralidad
 
         if zonas_destino:
-            # Compatible con al menos una zona del destino
             compatible = any(zona_reclamo in ZONAS_COMPATIBLES.get(zd, []) for zd in zonas_destino)
             if compatible:
                 score += 100
-            # Match exacto (misma zona) también suma
             if zona_reclamo in zonas_destino:
                 score += 20
         else:
-            # Sin zonas destino aún → priorizar centralidad pura
-            score += 10  # pequeño empuje para desbloquear
+            # Destino vacío → priorizar zonas centrales (Zona 3 es la mejor)
+            if zona_reclamo == "Zona 3":
+                score += 50
+            score += 10
+
+        # Bonus: si el origen está muy cargado, priorizar reclamos de zonas pequeñas
+        score += centralidad * 0.1
 
         if score > mejor_score:
             mejor_score = score
             mejor_id = reclamo_id
 
-    # 3) Fallback si no encontramos nada
     return mejor_id if mejor_id is not None else (reclamos_grupo_origen[0] if reclamos_grupo_origen else None)
+
+def _forzar_balanceo_final(asignaciones, df_reclamos, grupos_activos):
+    """
+    Red de seguridad:
+    1. Si hay grupos vacíos, les asigna reclamos del grupo más cargado
+    2. Itera hasta que max(cargas) - min(cargas) <= 1
+    """
+    grupos = GRUPOS_POSIBLES[:grupos_activos]
+
+    for _ in range(100):  # Guarda anti-bucle infinito
+        carga = {g: len(asignaciones[g]) for g in grupos}
+        max_carga = max(carga.values())
+        min_carga = min(carga.values())
+
+        if max_carga - min_carga <= 1:
+            break
+
+        grupo_max = max(grupos, key=lambda g: carga[g])
+        grupo_min = min(grupos, key=lambda g: carga[g])
+
+        # Si el grupo min está vacío, cualquier reclamo sirve para "desbloquear"
+        # Si ya tiene reclamos, buscamos uno compatible
+        if carga[grupo_min] == 0:
+            # Forzar el primer reclamo del grupo más cargado
+            if asignaciones[grupo_max]:
+                candidato = asignaciones[grupo_max][0]
+            else:
+                break
+        else:
+            candidato = _encontrar_reclamo_transferible(
+                asignaciones[grupo_max],
+                grupo_max,
+                grupo_min,
+                df_reclamos,
+                asignaciones
+            )
+
+        if not candidato:
+            # Fallback: si no hay compatible, tomar el primero para no bloquear
+            if asignaciones[grupo_max] and carga[grupo_min] == 0:
+                candidato = asignaciones[grupo_max][0]
+            else:
+                break
+
+        asignaciones[grupo_max].remove(candidato)
+        asignaciones[grupo_min].append(candidato)
+
+    return asignaciones
 
 def distribuir_por_tipo(df_reclamos, grupos_activos):
     df_reclamos = df_reclamos[df_reclamos["Estado"] == "Pendiente"].copy()  # <--- agregado
@@ -485,6 +564,31 @@ def _limpiar_asignaciones(df_reclamos):
             if str(id) in ids_validos
         ]
 
+def _mostrar_metricas_asignacion(asignaciones, df_reclamos, grupos_activos):
+    """Muestra métricas de calidad de la asignación"""
+    grupos = GRUPOS_POSIBLES[:grupos_activos]
+    cargas = {g: len(asignaciones[g]) for g in grupos}
+    total = sum(cargas.values())
+
+    if total == 0:
+        return
+
+    carga_ideal = total / len(grupos)
+    desbalance = max(cargas.values()) - min(cargas.values())
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total reclamos", total)
+    col2.metric("Carga ideal/grupo", f"{carga_ideal:.1f}")
+    col3.metric("Desbalance máximo", desbalance, 
+                delta="Óptimo" if desbalance <= 1 else "Regular")
+
+    # Detalle por grupo
+    st.markdown("**Distribución por grupo:**")
+    cols = st.columns(len(grupos))
+    for i, g in enumerate(grupos):
+        pct = (cargas[g] / total * 100) if total > 0 else 0
+        cols[i].metric(g, cargas[g], f"{pct:.0f}%")
+
 def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=None, sheet_clientes=None):
     if user.get('rol') != 'admin':
         st.warning("⚠️ Solo los administradores pueden acceder a esta sección")
@@ -527,6 +631,14 @@ def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=N
 
         if st.session_state.get("vista_simulacion"):
             st.subheader("🗂️ Distribución previa de reclamos")
+
+            # Mostrar métricas de calidad de la asignación
+            _mostrar_metricas_asignacion(
+                st.session_state.simulacion_asignaciones, 
+                df_reclamos, 
+                grupos_activos
+            )
+
             for grupo, reclamos in st.session_state.simulacion_asignaciones.items():
                 st.markdown(f"### 📦 {grupo} - {len(reclamos)} reclamos")
                 for rid in reclamos:
@@ -539,7 +651,7 @@ def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=N
             if st.button("💾 Confirmar y guardar esta asignación"):
                 for g in GRUPOS_POSIBLES:
                     st.session_state.asignaciones_grupos[g] = []
-                        
+
                 st.session_state.asignaciones_grupos = st.session_state.simulacion_asignaciones
                 st.session_state.vista_simulacion = False
                 st.success("✅ Asignaciones aplicadas.")
@@ -547,12 +659,12 @@ def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=N
 
         if st.button("🔄 Refrescar reclamos"):
             st.cache_data.clear()
-            
+
             # Generar UUIDs faltantes si se tienen los datos necesarios
             if df_clientes is not None and sheet_clientes is not None:
                 with st.spinner("Verificando y generando UUIDs faltantes..."):
                     _generar_uuids_faltantes(df_reclamos, df_clientes, sheet_reclamos, sheet_clientes)
-            
+
             return {'needs_refresh': True}
 
         _mostrar_asignacion_tecnicos(grupos_activos)
@@ -793,30 +905,30 @@ def _wrap_text(text, font_name, font_size, max_width, canvas_obj):
     """
     if not text or not str(text).strip():
         return ['']
-    
+
     text = str(text).strip()
-    
+
     if canvas_obj.stringWidth(text, font_name, font_size) <= max_width:
         return [text]
-    
+
     words = text.split(' ')
     lines = []
     current_line = ''
-    
+
     for word in words:
         if current_line:
             test_line = f"{current_line} {word}"
         else:
             test_line = word
-        
+
         text_width = canvas_obj.stringWidth(test_line, font_name, font_size)
-        
+
         if text_width <= max_width:
             current_line = test_line
         else:
             if current_line:
                 lines.append(current_line)
-            
+
             if canvas_obj.stringWidth(word, font_name, font_size) > max_width:
                 chars = ''
                 for char in word:
@@ -829,10 +941,10 @@ def _wrap_text(text, font_name, font_size, max_width, canvas_obj):
                 current_line = chars
             else:
                 current_line = word
-    
+
     if current_line:
         lines.append(current_line)
-    
+
     return lines if lines else ['']
 
 def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendientes, df_clientes):
