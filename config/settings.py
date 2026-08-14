@@ -100,8 +100,8 @@ OPCIONES_PERMISOS = {
 SECTORES_DISPONIBLES = [str(n) for n in range(1, 18)]
 
 TECNICOS_DISPONIBLES = [
-    "Conejo", "Juan", "Junior", "Maxi", "Marki",
-    "Ramon", "Rene", "Roque", "Viki", "Oficina", "Base"
+    "Blume", "Conejo", "Gabriel", "Juan", "Junior", "Maxi", "Marki",
+    "Pedrito", "Ramon", "Rene", "Roque", "Viki", "Oficina", "Base"
 ]
 
 TIPOS_RECLAMO = [
