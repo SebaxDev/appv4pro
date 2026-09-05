@@ -143,7 +143,7 @@ def render_impresion_reclamos(df_reclamos, df_clientes, user):
             # Selector de rango de días
             rango_dias = st.selectbox(
                 "Seleccionar período:",
-                options=[15, 30, 60, 90],
+                options=[7, 15, 30, 60, 90],
                 index=1,  # 30 días por defecto
                 format_func=lambda x: f"Últimos {x} días"
             )
