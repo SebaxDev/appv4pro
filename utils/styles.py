@@ -250,3 +250,65 @@ def render_metric_card(title, value, subtitle="", color="blue"):
         {f'<div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">{subtitle}</div>' if subtitle else ''}
     </div>
     """
+
+# --- FUNCIONES RESTAURADAS PARA COMPATIBILIDAD ---
+
+def get_loading_spinner():
+    """Spinner de carga moderno con estilo CRM (restaurado para compatibilidad)"""
+    return """
+    <div style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background-color: var(--bg-app);
+        z-index: 9999;
+        opacity: 0.95;
+    ">
+        <div style="text-align: center;">
+            <div style="
+                width: 50px;
+                height: 50px;
+                border: 4px solid var(--bg-input);
+                border-top: 4px solid var(--primary);
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 1rem;
+            "></div>
+            <p style="color: var(--text-primary); font-weight: 600;">Cargando Fusion CRM...</p>
+        </div>
+        <style>
+        @keyframes spin {{
+            0% {{ transform: rotate(0deg); }}
+            100% {{ transform: rotate(360deg); }}
+        }}
+        </style>
+    </div>
+    """
+
+def loading_indicator(message="Cargando datos..."):
+    """Indicador de carga elegante (restaurado para compatibilidad)"""
+    return f"""
+    <div style="text-align: center; padding: 2rem;">
+        <div style="
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--bg-input);
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        "></div>
+        <p style="color: var(--text-secondary); margin: 0; font-size: 0.9rem;">{message}</p>
+    </div>
+    <style>
+    @keyframes spin {{
+        0% {{ transform: rotate(0deg); }}
+        100% {{ transform: rotate(360deg); }}
+    }}
+    </style>
+    """
