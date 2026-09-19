@@ -333,23 +333,24 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
 
             id_reclamo = generar_id_unico()
 
-            # Construcción de la fila de datos para la hoja de cálculo (A-O, 15 columnas)
+            # Construcción de la fila de datos para la hoja de cálculo (A-P, 16 columnas)
             fila_reclamo = [
-                format_fecha(fecha_hora),       # Fecha y hora
-                estado['nro_cliente'],          # Nº Cliente
-                sector_normalizado,             # Sector
-                nombre.upper().strip(),         # Nombre
-                direccion.upper().strip(),      # Dirección
-                telefono.strip(),               # Teléfono
-                tipo_reclamo,                   # Tipo de reclamo
-                detalles.upper().strip(),       # Detalles
-                estado_reclamo,                 # Estado (Pendiente o Desconexión)
-                "",                             # Técnico (se asigna después)
-                precinto.strip(),               # N° de Precinto
-                atendido_por.upper().strip(),   # Atendido por
-                "",                             # Fecha_formateada (se llena al cerrar)
+                format_fecha(fecha_hora),       # A: Fecha y hora
+                estado['nro_cliente'],          # B: Nº Cliente
+                sector_normalizado,             # C: Sector
+                nombre.upper().strip(),         # D: Nombre
+                direccion.upper().strip(),      # E: Dirección
+                telefono.strip(),               # F: Teléfono
+                tipo_reclamo,                   # G: Tipo de reclamo
+                detalles.upper().strip(),       # H: Detalles
+                estado_reclamo,                 # I: Estado (Pendiente o Desconexión)
+                "",                             # J: Técnico (se asigna después)
+                precinto.strip(),               # K: N° de Precinto
+                atendido_por.upper().strip(),   # L: Atendido por
+                "",                             # M: Fecha_formateada (se llena al cerrar)
                 "",                             # N: Anotaciones (vacío al crear)
-                id_reclamo                      # ID Reclamo
+                "",                             # O: [Columna vacía / Gap para alinear con P]
+                id_reclamo                      # P: ID Reclamo (Corregido para coincidir con planificación)
             ]
 
             # --- Interacción con Google Sheets ---
@@ -361,7 +362,7 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
             if success:
                 # Escribir plan en columna S (índice 19) de la hoja Reclamos
                 try:
-                    id_values = sheet_reclamos.col_values(15)  # Columna O = ID Reclamo
+                    id_values = sheet_reclamos.col_values(16)  # Columna O = ID Reclamo
                     for i in range(1, len(id_values)):
                         if id_values[i] == id_reclamo:
                             row_number = i + 1
