@@ -35,7 +35,7 @@ from components.auth import check_authentication, render_login
 from components.new_navigation import render_main_navigation, render_user_info
 
 # Utils
-from utils.styles import get_main_styles_v2
+from utils.styles import get_crm_styles
 from utils.data_manager import safe_get_sheet_data, batch_update_sheet
 from utils.permissions import has_permission
 from utils.date_utils import ahora_argentina
@@ -223,7 +223,7 @@ if 'current_page' not in st.session_state:
 if 'modo_oscuro' not in st.session_state:
     st.session_state.modo_oscuro = False
 
-st.markdown(get_main_styles_v2(dark_mode=st.session_state.modo_oscuro), unsafe_allow_html=True)
+st.markdown(get_crm_styles(dark_mode=st.session_state.modo_oscuro), unsafe_allow_html=True)
 
 # --- HEADER Y NAVEGACIÓN PRINCIPAL ---
 st.markdown("""<h1 style="text-align: center; margin-bottom: 2rem;">Fusion Reclamos App</h1>""", unsafe_allow_html=True)
