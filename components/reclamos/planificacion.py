@@ -626,6 +626,66 @@ def distribuir_por_sector_mejorado(df_reclamos, grupos_activos, df_clientes=None
 
     return asignaciones
 
+def distribuir_por_sector_tipo_signal(df_reclamos, grupos_activos, df_clientes=None):
+    """
+    Algoritmo híbrido de 4 fases (clon del mejorado) pero EXCLUSIVO para 
+    tipos de reclamo de 'Sin Señal'.
+    
+    Reutiliza toda la lógica geográfica (Cliques, Haversine, Balanceo) 
+    pero operando solo sobre un subconjunto de datos filtrados.
+    """
+    # 1. Definir los tipos de reclamos objetivo
+    # En el futuro puedes modificar esta lista según necesites
+    TIPOS_OBJETIVO = [
+        "Sin Señal Ambos", 
+        "Sin Señal Cable", 
+        "Sin Señal Internet"
+    ]
+
+    # 2. Filtrar el DataFrame
+    # Convertimos a minúsculas para evitar errores de escritura (ej: "sin señal ambos" vs "Sin Señal Ambos")
+    mask_estado = df_reclamos["Estado"] == "Pendiente"
+    mask_tipo = df_reclamos["Tipo de reclamo"].str.lower().isin([t.lower() for t in TIPOS_OBJETIVO])
+    
+    # Creamos un nuevo dataframe solo con estos reclamos
+    df_filtrado = df_reclamos[mask_estado & mask_tipo].copy()
+
+    if df_filtrado.empty:
+        st.info("🔍 No se encontraron reclamos de tipo 'Sin Señal' pendientes para distribuir.")
+        return {g: [] for g in GRUPOS_POSIBLES[:grupos_activos]}
+
+    # 3. Ejecutar el algoritmo estándar sobre el dataframe FILTRADO
+    grupos = GRUPOS_POSIBLES[:grupos_activos]
+    asignaciones = {g: [] for g in grupos}
+
+    zonas = list(SECTORES_VECINOS.keys())
+
+    # FASE 1: Asignación base por zonas completas (usando df_filtrado)
+    zonas_por_grupo = agrupar_zonas_completas(zonas, grupos, df_filtrado)
+
+    # Crear mapa sector→grupo y asignar reclamos iniciales (usando df_filtrado)
+    sector_grupo_map = {}
+    for grupo, zonas_asignadas in zonas_por_grupo.items():
+        for zona in zonas_asignadas:
+            for sector in SECTORES_VECINOS.get(zona, []):
+                sector_grupo_map[str(sector)] = grupo
+
+    for _, r in df_filtrado.iterrows():
+        sector = str(r.get("Sector", "")).strip()
+        grupo = sector_grupo_map.get(sector)
+        if grupo:
+            asignaciones[grupo].append(r["ID Reclamo"])
+
+    # FASE 2: Balanceo fino por reclamo (usando df_filtrado)
+    asignaciones = _balancear_asignaciones(asignaciones, df_filtrado)
+
+    # FASE 3: Red de seguridad (usando df_filtrado)
+    asignaciones = _forzar_balanceo_final(asignaciones, df_filtrado, grupos_activos)
+
+    # FASE 4: Ordenar cada grupo por ruta geográfica (usando df_filtrado)
+    asignaciones = _aplicar_orden_ruta_a_asignaciones(asignaciones, df_filtrado, df_clientes)
+
+    return asignaciones
 
 def distribuir_por_tipo(df_reclamos, grupos_activos):
     df_reclamos = df_reclamos[df_reclamos["Estado"] == "Pendiente"].copy()
@@ -801,17 +861,19 @@ def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=N
 
         modo_distribucion = st.selectbox(
             "📊 Elegí el modo de distribución",
-            ["Manual", "Automática por sector (mejorada)", "Automática por tipo de reclamo"],
+            ["Manual", "Automática por sector (mejorada)", "Automática por sector (Solo 'Sin Señal')", "Automática por tipo de reclamo"],
             index=0
         )
 
         if modo_distribucion != "Manual":
             if st.button("⚙️ Distribuir reclamos ahora"):
+                
+                # --- Lógica Original ---
                 if modo_distribucion == "Automática por sector (mejorada)":
                     st.session_state.simulacion_asignaciones = distribuir_por_sector_mejorado(
                         df_reclamos, grupos_activos, df_clientes
                     )
-
+                    
                     # Mostrar zonas asignadas por grupo
                     zonas_por_grupo = agrupar_zonas_completas(
                         list(SECTORES_VECINOS.keys()),
@@ -822,6 +884,32 @@ def render_planificacion_grupos(df_reclamos, sheet_reclamos, user, df_clientes=N
                     for grupo, zonas_asignadas in zonas_por_grupo.items():
                         st.markdown(f"- **{grupo}** cubre: {', '.join(zonas_asignadas)}")
 
+                # --- NUEVA LÓGICA AGREGADA ---
+                elif modo_distribucion == "Automática por sector (Solo 'Sin Señal')":
+                    st.session_state.simulacion_asignaciones = distribuir_por_sector_tipo_signal(
+                        df_reclamos, grupos_activos, df_clientes
+                    )
+                    
+                    # Mostrar información de zonas para este subconjunto específico
+                    st.info("ℹ️ Distribución calculada solo para reclamos de tipo: 'Sin Señal Ambos/Cable/Internet'.")
+                    
+                    # Calculamos y mostramos zonas basadas en los datos filtrados internamente
+                    # (Reutilizamos la función helper para mostrar qué zonas tienen más carga de estos reclamos)
+                    df_filtrado = df_reclamos[
+                        (df_reclamos["Estado"] == "Pendiente") & 
+                        (df_reclamos["Tipo de reclamo"].str.lower().isin(["sin señal ambos", "sin señal cable", "sin señal internet"]))
+                    ]
+                    
+                    zonas_por_grupo = agrupar_zonas_completas(
+                        list(SECTORES_VECINOS.keys()),
+                        GRUPOS_POSIBLES[:grupos_activos],
+                        df_filtrado # Usamos el filtrado para que muestre zonas relevantes a este tipo
+                    )
+                    st.markdown("### 🗺️ Zonas asignadas para 'Sin Señal':")
+                    for grupo, zonas_asignadas in zonas_por_grupo.items():
+                        st.markdown(f"- **{grupo}** cubre: {', '.join(zonas_asignadas)}")
+
+                # --- Lógica existente tipo ---
                 else:
                     st.session_state.simulacion_asignaciones = distribuir_por_tipo(df_reclamos, grupos_activos)
 
