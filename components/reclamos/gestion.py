@@ -61,6 +61,36 @@ def _make_selector_label(row):
     )
 
 
+def _actualizar_en_memoria(fila, reclamo_id, campos_actualizados):
+    """
+    Actualiza el DataFrame local en st.session_state sin necesidad de volver a leer de Google Sheets.
+    Busca por 'ID Reclamo' si existe, o por el índice derivado de la fila física (fila - 2).
+    """
+    if "df_reclamos" not in st.session_state or st.session_state.df_reclamos is None:
+        return
+
+    df = st.session_state.df_reclamos
+    target_idx = None
+
+    # 1. Intentar localizar por ID Reclamo
+    if reclamo_id and "ID Reclamo" in df.columns:
+        matching = df[df["ID Reclamo"].astype(str).str.strip() == str(reclamo_id).strip()]
+        if not matching.empty:
+            target_idx = matching.index[0]
+
+    # 2. Fallback a fila física de Sheet (fila 2 corresponde a index 0)
+    if target_idx is None:
+        idx_candidato = fila - 2
+        if 0 <= idx_candidato < len(df):
+            target_idx = idx_candidato
+
+    # 3. Aplicar modificaciones en memoria
+    if target_idx is not None:
+        for columna, valor in campos_actualizados.items():
+            if columna in df.columns:
+                df.at[target_idx, columna] = valor
+
+
 # ============================================
 # RENDER PRINCIPAL
 # ============================================
@@ -68,7 +98,7 @@ def _make_selector_label(row):
 def render_gestion_reclamos(df_reclamos, df_clientes, sheet_reclamos, user):
     """
     Dashboard de gestión de reclamos con contadores, dataframe compacto y editor.
-    Retorna {"needs_refresh": True/False} — consistente con el patrón de la app.
+    Retorna {"needs_refresh": True/False} indicando si se requiere rerun visual.
     """
     st.subheader("📊 Dashboard de Gestión de Reclamos")
     needs_refresh = False
@@ -259,7 +289,6 @@ def _mostrar_filtros_y_dataframe(df):
     else:
         st.caption(f"Mostrando {total_filtrados} reclamos filtrados")
 
-    # Retornar el set COMPLETO filtrado (para que el editor pueda buscar en todos)
     return df_filtrado
 
 
@@ -271,16 +300,13 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
     """Editor de reclamo puntual con selector robusto y búsqueda por ID."""
     st.markdown("### ✏️ Editar un reclamo puntual")
 
-    # Crear labels robustos
     df["_selector"] = df.apply(_make_selector_label, axis=1)
 
-    # Búsqueda (incluye ID Reclamo — Mejora J)
     busqueda = st.text_input(
         "🔍 Buscar por cliente, nombre o ID de reclamo",
         key="busqueda_editor",
     )
 
-    # Filtrar opciones
     opciones = df["_selector"].tolist()
     if busqueda:
         busqueda_lower = busqueda.lower()
@@ -300,12 +326,10 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
     if not seleccion:
         return False
 
-    # Encontrar reclamo por selector (sin parsear strings — Fix #3)
     reclamo_actual = df[df["_selector"] == seleccion].iloc[0]
     reclamo_id = _safe_str(reclamo_actual["ID Reclamo"])
     fila = int(reclamo_actual["_sheet_row"])
 
-    # Info del reclamo
     with st.expander("📄 Información del reclamo", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
@@ -317,7 +341,6 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
             st.markdown(f"**⚙️ Estado:** {reclamo_actual.get('Estado', 'N/A')}")
             st.markdown(f"**👷 Técnico:** {_safe_str(reclamo_actual.get('Técnico', ''), 'No asignado')}")
 
-    # Formulario de edición
     tipos_edit = _tipos_para_editar()
 
     with st.form(f"form_editar_{reclamo_id}"):
@@ -334,7 +357,6 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
             )
 
         with col2:
-            # Tipo desde settings (Fix #9)
             tipo_actual = _safe_str(reclamo_actual.get("Tipo de reclamo", ""))
             try:
                 tipo_idx = tipos_edit.index(tipo_actual) if tipo_actual in tipos_edit else 0
@@ -342,7 +364,6 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
                 tipo_idx = 0
             tipo_reclamo = st.selectbox("Tipo de reclamo", tipos_edit, index=tipo_idx)
 
-            # Sector
             try:
                 sector_norm = str(int(str(reclamo_actual.get("Sector", "")).strip()))
                 sector_idx = (
@@ -367,7 +388,6 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
                 value=_safe_str(reclamo_actual.get("N° de Precinto", "")),
             )
         with col_e:
-            # Estado desde settings (Fix #8 / Mejora E)
             estado_actual = _safe_str(reclamo_actual.get("Estado", ""))
             try:
                 estado_idx = (
@@ -379,14 +399,12 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
                 estado_idx = 0
             estado_nuevo = st.selectbox("Nuevo estado", ESTADOS_RECLAMO, index=estado_idx)
 
-        # Anotaciones (Mejora C)
         anotaciones = st.text_area(
             "📝 Anotaciones",
             value=_safe_str(reclamo_actual.get("Anotaciones", "")),
             height=80,
         )
 
-        # Botones de acción
         col1, col2 = st.columns(2)
         guardar_cambios = col1.form_submit_button(
             "💾 Guardar todos los cambios", use_container_width=True
@@ -395,13 +413,13 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
             "🔄 Cambiar solo estado", use_container_width=True
         )
 
-    # Procesar acciones
     if guardar_cambios:
         if not direccion.strip() or not detalles.strip():
             st.warning("⚠️ Dirección y detalles no pueden estar vacíos.")
             return False
         return _actualizar_reclamo(
             fila=fila,
+            reclamo_id=reclamo_id,
             sheet_reclamos=sheet_reclamos,
             updates={
                 "direccion": direccion,
@@ -419,6 +437,7 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
     if cambiar_estado:
         return _actualizar_reclamo(
             fila=fila,
+            reclamo_id=reclamo_id,
             sheet_reclamos=sheet_reclamos,
             updates={"estado": estado_nuevo},
             full_update=False,
@@ -428,70 +447,95 @@ def _mostrar_edicion_reclamo(df, sheet_reclamos, user):
 
 
 # ============================================
-# ACTUALIZACIÓN EN SHEET
+# ACTUALIZACIÓN EN SHEET Y MEMORIA
 # ============================================
 
-def _actualizar_reclamo(fila, sheet_reclamos, updates, full_update=False):
-    """Actualiza un reclamo usando column mapping dinámico (Mejora D)."""
+def _actualizar_reclamo(fila, reclamo_id, sheet_reclamos, updates, full_update=False):
+    """Actualiza en Google Sheets y sincroniza st.session_state sin recargar de la API."""
     with st.spinner("Actualizando reclamo..."):
         try:
             updates_list = []
+            memoria_updates = {}
 
             if full_update:
                 if "sector" in updates:
+                    val = str(updates["sector"])
                     updates_list.append({
                         "range": f"{_col_letter('Sector')}{fila}",
-                        "values": [[str(updates["sector"])]],
+                        "values": [[val]],
                     })
+                    memoria_updates["Sector"] = val
+
                 if "direccion" in updates:
+                    val = updates["direccion"].upper().strip()
                     updates_list.append({
                         "range": f"{_col_letter('Dirección')}{fila}",
-                        "values": [[updates["direccion"].upper().strip()]],
+                        "values": [[val]],
                     })
+                    memoria_updates["Dirección"] = val
+
                 if "telefono" in updates:
+                    val = str(updates["telefono"]).strip()
                     updates_list.append({
                         "range": f"{_col_letter('Teléfono')}{fila}",
-                        "values": [[str(updates["telefono"]).strip()]],
+                        "values": [[val]],
                     })
+                    memoria_updates["Teléfono"] = val
+
                 if "tipo_reclamo" in updates:
+                    val = updates["tipo_reclamo"]
                     updates_list.append({
                         "range": f"{_col_letter('Tipo de reclamo')}{fila}",
-                        "values": [[updates["tipo_reclamo"]]],
+                        "values": [[val]],
                     })
+                    memoria_updates["Tipo de reclamo"] = val
+
                 if "detalles" in updates:
+                    val = updates["detalles"]
                     updates_list.append({
                         "range": f"{_col_letter('Detalles')}{fila}",
-                        "values": [[updates["detalles"]]],
+                        "values": [[val]],
                     })
+                    memoria_updates["Detalles"] = val
+
                 if "precinto" in updates:
+                    val = str(updates["precinto"]).strip()
                     updates_list.append({
                         "range": f"{_col_letter('N° de Precinto')}{fila}",
-                        "values": [[str(updates["precinto"]).strip()]],
+                        "values": [[val]],
                     })
+                    memoria_updates["N° de Precinto"] = val
+
                 if "anotaciones" in updates:
+                    val = updates["anotaciones"].strip()
                     updates_list.append({
                         "range": f"{_col_letter('Anotaciones')}{fila}",
-                        "values": [[updates["anotaciones"].strip()]],
+                        "values": [[val]],
                     })
+                    memoria_updates["Anotaciones"] = val
 
             # Estado (presente en ambos modos)
             if "estado" in updates and updates["estado"] is not None:
+                val_estado = updates["estado"]
                 updates_list.append({
                     "range": f"{_col_letter('Estado')}{fila}",
-                    "values": [[updates["estado"]]],
+                    "values": [[val_estado]],
                 })
+                memoria_updates["Estado"] = val_estado
 
-                # Si vuelve a Pendiente, limpiar técnico
-                if str(updates["estado"]).strip().lower() == "pendiente":
+                # Si vuelve a Pendiente, limpiar técnico asignado
+                if str(val_estado).strip().lower() == "pendiente":
                     updates_list.append({
                         "range": f"{_col_letter('Técnico')}{fila}",
                         "values": [[""]],
                     })
+                    memoria_updates["Técnico"] = ""
 
             if not updates_list:
                 st.warning("⚠️ No hay cambios para enviar.")
                 return False
 
+            # Escritura en Google Sheets
             success, error = api_manager.safe_sheet_operation(
                 dm_batch_update_sheet,
                 sheet_reclamos,
@@ -500,6 +544,8 @@ def _actualizar_reclamo(fila, sheet_reclamos, updates, full_update=False):
             )
 
             if success:
+                # Actualización directa en memoria RAM (sin consumir cuotas de lectura de Sheets)
+                _actualizar_en_memoria(fila, reclamo_id, memoria_updates)
                 st.success("✅ Reclamo actualizado correctamente.")
                 if DEBUG_MODE:
                     st.json({"fila": fila, "updates_sent": updates_list})
@@ -522,7 +568,7 @@ def _actualizar_reclamo(fila, sheet_reclamos, updates, full_update=False):
 def _gestionar_desconexiones(df, sheet_reclamos):
     """
     Gestiona desconexiones a pedido pendientes.
-    Usa _sheet_row del DataFrame en vez de llamar a la API (Fix #1 / Mejora F).
+    Escribe el cambio en Sheets y actualiza en memoria sin volver a consultar toda la planilla.
     """
     st.markdown("### 🔌 Desconexiones a Pedido Pendientes")
 
@@ -570,6 +616,7 @@ def _gestionar_desconexiones(df, sheet_reclamos):
                     use_container_width=True,
                 ):
                     fila = int(row["_sheet_row"])
+                    reclamo_id = _safe_str(row.get("ID Reclamo", ""))
                     updates_list = [
                         {
                             "range": f"{_col_letter('Estado')}{fila}",
@@ -585,6 +632,8 @@ def _gestionar_desconexiones(df, sheet_reclamos):
                     )
 
                     if success:
+                        # Reflejar de inmediato en memoria
+                        _actualizar_en_memoria(fila, reclamo_id, {"Estado": "Resuelto"})
                         st.success(
                             f"✅ Desconexión de {row.get('Nombre', 'Cliente')} marcada como resuelta."
                         )

@@ -77,14 +77,17 @@ def init_google_sheets():
         st.error(f"Error de conexión con Google Sheets: {e}")
         st.stop()
 
-# --- Carga de Datos ---
-def cargar_datos_principales(sheet_reclamos, sheet_clientes, sheet_usuarios, sheet_cajas):
-    """Carga los dataframes principales desde las hojas de cálculo."""
-    with st.spinner("Cargando datos..."):
-        df_r = safe_get_sheet_data(sheet_reclamos, COLUMNAS_RECLAMOS)
-        df_c = safe_get_sheet_data(sheet_clientes, COLUMNAS_CLIENTES)
-        df_u = safe_get_sheet_data(sheet_usuarios, COLUMNAS_USUARIOS)
-        df_cajas = safe_get_sheet_data(sheet_cajas, COLUMNAS_CAJAS)
+# --- Carga de Datos con Caché y TTL ---
+@st.cache_data(ttl=300, show_spinner="Cargando base de datos...")  # Guarda en memoria por 5 minutos
+def cargar_datos_principales(_sheet_reclamos, _sheet_clientes, _sheet_usuarios, _sheet_cajas):
+    """
+    Carga los dataframes principales desde las hojas de cálculo.
+    El guión bajo (_) evita que Streamlit intente hashear los objetos de gspread.
+    """
+    df_r = safe_get_sheet_data(_sheet_reclamos, COLUMNAS_RECLAMOS)
+    df_c = safe_get_sheet_data(_sheet_clientes, COLUMNAS_CLIENTES)
+    df_u = safe_get_sheet_data(_sheet_usuarios, COLUMNAS_USUARIOS)
+    df_cajas = safe_get_sheet_data(_sheet_cajas, COLUMNAS_CAJAS)
     return df_r, df_c, df_u, df_cajas
 
 # --- UTILIDAD: Migración de UUIDs existentes ---
@@ -233,34 +236,60 @@ st.markdown(get_crm_styles(dark_mode=st.session_state.modo_oscuro), unsafe_allow
 # --- HEADER Y NAVEGACIÓN PRINCIPAL ---
 st.markdown("""<h1 style="text-align: center; margin-bottom: 2rem;">Fusion Reclamos App</h1>""", unsafe_allow_html=True)
 
-# Métricas compactas para el header (hoy y pendientes)
+# Métricas compactas para el header (hoy, pendientes, en curso y verificados)
 try:
     df_header = df_reclamos.copy()
     df_header["Fecha y hora"] = pd.to_datetime(df_header["Fecha y hora"], dayfirst=True, errors='coerce')
     hoy = ahora_argentina().date()
+    
+    # Serie de estados normalizados para conteo rápido
+    estados_norm = df_header["Estado"].astype(str).str.strip().str.lower()
+    
     reclamos_hoy_count = int((df_header["Fecha y hora"].dt.date == hoy).sum())
-    pendientes_count = int((df_header["Estado"].astype(str).str.strip().str.lower() == "pendiente").sum())
+    pendientes_count = int((estados_norm == "pendiente").sum())
+    en_curso_count = int((estados_norm == "en curso").sum())
+    verificados_count = int((estados_norm == "verificado").sum())
 except Exception:
     reclamos_hoy_count = 0
     pendientes_count = 0
+    en_curso_count = 0
+    verificados_count = 0
 
-header_cols = st.columns([4, 3, 1, 1])
+# Ajustamos las proporciones para dar más espacio a las 4 métricas
+header_cols = st.columns([5, 2.5, 1.2, 1.3])
+
 with header_cols[0]:
-    mcol1, mcol2 = st.columns(2)
+    mcol1, mcol2, mcol3, mcol4 = st.columns(4)
     with mcol1:
         st.metric(label="📝 Hoy", value=reclamos_hoy_count)
     with mcol2:
         st.metric(label="⏳ Pendientes", value=pendientes_count)
+    with mcol3:
+        st.metric(label="🚧 En Curso", value=en_curso_count)
+    with mcol4:
+        st.metric(label="🔍 Verificados", value=verificados_count)
+
 with header_cols[1]:
     render_user_info()
+
 with header_cols[2]:
     def toggle_dark_mode():
         st.session_state.modo_oscuro = st.session_state.dark_mode_toggle
     st.checkbox("🌙 Modo Oscuro", value=st.session_state.modo_oscuro, key="dark_mode_toggle", on_change=toggle_dark_mode)
+
 with header_cols[3]:
     if st.button("Salir 🚪", use_container_width=True):
         st.session_state.auth['logged_in'] = False
         st.session_state.auth['user_info'] = {}
+        st.rerun()
+
+# ==========================================
+# 🟢 AQUÍ PODÉS AGREGAR EL BOTÓN EN EL SIDEBAR:
+# ==========================================
+with st.sidebar:
+    st.markdown("### ⚙️ Datos")
+    if st.button("🔄 Sincronizar datos", use_container_width=True):
+        st.cache_data.clear()
         st.rerun()
 
 render_main_navigation()
@@ -343,12 +372,10 @@ if opcion in COMPONENTES and has_permission(COMPONENTES[opcion]["permiso"]):
         resultado = COMPONENTES[opcion]["render"](**COMPONENTES[opcion]["params"])
         
         if resultado and resultado.get('needs_refresh'):
-            st.cache_data.clear()
-            time.sleep(1)
             st.rerun()
 
 # --- FOOTER Y RESUMEN ---
 with st.container():
     render_resumen_jornada(df_reclamos)
 
-st.markdown(f"""<div style="text-align:center; font-size:1rem; color: var(--text-muted); padding-top: 2rem;">Desarrollado con 💜 por Sebastián Andrés (v3.0)</div>""", unsafe_allow_html=True)
+st.markdown(f"""<div style="text-align:center; font-size:1rem; color: var(--text-muted); padding-top: 2rem;">Desarrollado con 💜 por Sebastián Andrés (v4.0)</div>""", unsafe_allow_html=True)
