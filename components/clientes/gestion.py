@@ -7,36 +7,32 @@ from utils.date_utils import ahora_argentina, format_fecha
 from components.reclamos.nuevo import generar_id_unico
 from config.settings import SECTORES_DISPONIBLES, PLANES_DISPONIBLES, DEBUG_MODE
 
+
 def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role, df_cajas=None, sheet_cajas=None):
     """
-    Módulo de búsqueda, creación y edición de clientes.
-    - Si no existe: permite crearlo con todos sus datos.
-    - Si existe: permite editar datos principales, cargar precinto y georreferencia.
-    Incluye editor de Cajas NAP debajo del editor de clientes.
+    Modulo de busqueda, creacion y edicion de clientes + Cajas NAP.
     """
     needs_refresh = False
 
     # ==========================================
-    # SECCIÓN 1: GESTIÓN DE CLIENTES
+    # SECCION 1: GESTION DE CLIENTES
     # ==========================================
     st.subheader("🔍 Búsqueda y Gestión de Clientes")
 
-    # Normalizar Nº Cliente para la búsqueda
     df_clientes["Nº Cliente"] = df_clientes["Nº Cliente"].astype(str).str.strip()
 
     nro_cliente = st.text_input(
-        "Ingresá el Número de Cliente", 
+        "Ingresá el Número de Cliente",
         placeholder="Ej: 9944",
         key="search_nro_cliente"
     ).strip()
 
-   ;    if nro_cliente:
-        # Buscar cliente
+    if nro_cliente:
         cliente_data = df_clientes[df_clientes["Nº Cliente"] == nro_cliente]
 
         if cliente_data.empty:
             # ==========================================
-            # CASO 1: EL CLIENTE NO EXISTE - CREACIÓN
+            # CASO 1: EL CLIENTE NO EXISTE - CREACION
             # ==========================================
             st.info("ℹ️ Este cliente no existe en la base. Completá los datos para crearlo.")
 
@@ -64,20 +60,19 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             id_cliente = generar_id_unico()
                             ultima_mod = format_fecha(ahora_argentina())
 
-                            # Estructura exacta del tab Clientes (A a L)
                             fila_cliente = [
-                                nro_cliente,                   # A: Nº Cliente
-                                nuevo_sector,                  # B: Sector
-                                nuevo_nombre.upper().strip(),  # C: Nombre
-                                nuevo_direccion.upper().strip(),# D: Dirección
-                                nuevo_telefono.strip(),        # E: Teléfono
-                                nuevo_precinto.strip(),        # F: N° de Precinto
-                                id_cliente,                    # G: ID Cliente
-                                ultima_mod,                    # H: Última Modificación
-                                "",                            # I: Anotaciones (vacío por defecto)
-                                "",                            # J: Latitud
-                                "",                            # K: Longitud
-                                nuevo_plan                     # L: Plan
+                                nro_cliente,
+                                nuevo_sector,
+                                nuevo_nombre.upper().strip(),
+                                nuevo_direccion.upper().strip(),
+                                nuevo_telefono.strip(),
+                                nuevo_precinto.strip(),
+                                id_cliente,
+                                ultima_mod,
+                                "",
+                                "",
+                                "",
+                                nuevo_plan
                             ]
 
                             success, error = api_manager.safe_sheet_operation(
@@ -98,12 +93,11 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
         else:
             # ==========================================
-            # CASO 2: EL CLIENTE SÍ EXISTE - EDICIÓN
+            # CASO 2: EL CLIENTE SI EXISTE - EDICION
             # ==========================================
             cliente = cliente_data.iloc[0]
-            row_idx = cliente.name + 2  # Fila en Google Sheets
+            row_idx = cliente.name + 2
 
-            # Resumen rápido superior
             col_r1, col_r2, col_r3, col_r4 = st.columns(4)
             with col_r1:
                 st.markdown(f"**👤 Nombre:** {cliente.get('Nombre', 'N/A')}")
@@ -116,9 +110,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
             st.markdown("---")
 
-            # ------------------------------------------
-            # ACORDEÓN 1: EDITAR DATOS PRINCIPALES
-            # ------------------------------------------
+            # ACORDEON 1: EDITAR DATOS PRINCIPALES
             with st.expander("✏️ Editar Datos del Cliente (Sector, Nombre, Dirección, Teléfono, Plan)"):
                 with st.form("form_editar_datos"):
                     edit_col1, edit_col2 = st.columns(2)
@@ -129,7 +121,6 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
                     with edit_col2:
                         edit_telefono = st.text_input("📞 Teléfono", value=str(cliente.get("Teléfono", "")))
-                        # Pre-seleccionar el sector actual en el selectbox
                         sector_actual = str(cliente.get("Sector", "1")).strip()
                         try:
                             sector_idx = SECTORES_DISPONIBLES.index(sector_actual) if sector_actual in SECTORES_DISPONIBLES else 0
@@ -137,7 +128,6 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             sector_idx = 0
                         edit_sector = st.selectbox("🔢 Sector", options=SECTORES_DISPONIBLES, index=sector_idx)
 
-                        # Pre-seleccionar el plan actual
                         plan_actual = str(cliente.get("Plan", "")).strip()
                         try:
                             plan_idx = PLANES_DISPONIBLES.index(plan_actual) if plan_actual in PLANES_DISPONIBLES else 0
@@ -149,27 +139,20 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
                     if submit_edit:
                         updates = []
-                        # Comparar y preparar actualizaciones
                         if str(cliente.get("Sector", "")).strip() != edit_sector:
                             updates.append({"range": f"B{row_idx}", "values": [[edit_sector]]})
-
                         if str(cliente.get("Nombre", "")).strip() != edit_nombre.upper().strip():
                             updates.append({"range": f"C{row_idx}", "values": [[edit_nombre.upper().strip()]]})
-
                         if str(cliente.get("Dirección", "")).strip() != edit_direccion.upper().strip():
                             updates.append({"range": f"D{row_idx}", "values": [[edit_direccion.upper().strip()]]})
-
                         if str(cliente.get("Teléfono", "")).strip() != edit_telefono.strip():
                             updates.append({"range": f"E{row_idx}", "values": [[edit_telefono.strip()]]})
-
                         if str(cliente.get("Plan", "")).strip() != edit_plan:
                             updates.append({"range": f"L{row_idx}", "values": [[edit_plan]]})
 
                         if updates:
-                            # Siempre actualizamos la fecha de última modificación (Columna H)
                             fecha_mod = format_fecha(ahora_argentina())
                             updates.append({"range": f"H{row_idx}", "values": [[fecha_mod]]})
-
                             success, error = dm_batch_update_sheet(sheet_clientes, updates)
                             if success:
                                 st.success("✅ Datos del cliente actualizados correctamente.")
@@ -179,9 +162,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                         else:
                             st.info("ℹ️ No se detectaron cambios en los datos del cliente.")
 
-            # ------------------------------------------
-            # ACORDEÓN 2: GESTIÓN DE PRECINTO (COLUMNA F)
-            # ------------------------------------------
+            # ACORDEON 2: GESTION DE PRECINTO
             with st.expander("🔒 Gestión de Precinto"):
                 precinto = str(cliente.get("N° de Precinto", "")).strip()
                 has_precinto = precinto not in ("", "nan", "None")
@@ -194,7 +175,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
                         if submit_precinto:
                             if not new_precinto.strip():
-                                st.error("❌ El precinto no puede estar vacío. Si desea eliminarlo, hágalo desde la planilla.")
+                                st.error("❌ El precinto no puede estar vacío.")
                             elif new_precinto.strip() != precinto:
                                 updates = [{"range": f"F{row_idx}", "values": [[new_precinto.strip()]]}]
                                 success, error = dm_batch_update_sheet(sheet_clientes, updates)
@@ -223,9 +204,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 else:
                                     st.error(f"❌ Error al guardar en la hoja: {error}")
 
-            # ------------------------------------------
-            # ACORDEÓN 3: GEOREFERENCIA (COLUMNAS J y K)
-            # ------------------------------------------
+            # ACORDEON 3: GEOREFERENCIA
             with st.expander("🗺️ Georreferencia"):
                 lat = str(cliente.get("Latitud", "")).strip()
                 lon = str(cliente.get("Longitud", "")).strip()
@@ -253,7 +232,6 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             try:
                                 float(edit_lat.strip().replace(',', '.'))
                                 float(edit_lon.strip().replace(',', '.'))
-
                                 updates = [
                                     {"range": f"J{row_idx}", "values": [[edit_lat.strip()]]},
                                     {"range": f"K{row_idx}", "values": [[edit_lon.strip()]]}
@@ -286,31 +264,26 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 try:
                                     float(new_lat.strip().replace(',', '.'))
                                     float(new_lon.strip().replace(',', '.'))
-
                                     updates = [
                                         {"range": f"J{row_idx}", "values": [[new_lat.strip()]]},
                                         {"range": f"K{row_idx}", "values": [[new_lon.strip()]]}
                                     ]
-
                                     success, error = dm_batch_update_sheet(sheet_clientes, updates)
-
                                     if success:
                                         st.success("✅ Georreferencia guardada correctamente.")
                                         needs_refresh = True
                                     else:
                                         st.error(f"❌ Error al guardar en la hoja: {error}")
-
                                 except ValueError:
-                                    st.error("❌ Las coordenadas deben ser valores numéricos (ej: -26.123456 o -26,123456).")
+                                    st.error("❌ Las coordenadas deben ser valores numéricos.")
 
     # ==========================================
-    # SECCIÓN 2: EDITOR DE CAJAS NAP
+    # SECCION 2: EDITOR DE CAJAS NAP
     # ==========================================
     if df_cajas is not None and sheet_cajas is not None:
         st.markdown("---")
         st.subheader("📦 Editor de Cajas NAP")
 
-        # Normalizar N De Caja para la búsqueda
         df_cajas_norm = df_cajas.copy()
         df_cajas_norm["N De Caja"] = df_cajas_norm["N De Caja"].astype(str).str.strip()
 
@@ -323,12 +296,11 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
         if nro_caja:
             caja_data = df_cajas_norm[df_cajas_norm["N De Caja"] == nro_caja]
 
-            # Pre-llenar Cliente de Referencia con el nro de cliente buscado arriba
             default_cliente_ref = nro_cliente if nro_cliente else ""
 
             if caja_data.empty:
                 # ==========================================
-                # LA CAJA NO EXISTE - CREACIÓN
+                # LA CAJA NO EXISTE - CREACION
                 # ==========================================
                 st.info("ℹ️ Esta caja NAP no existe en la base. Completá los datos para crearla.")
 
@@ -359,18 +331,17 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             st.error("⚠️ El Barrio es un campo obligatorio.")
                         else:
                             try:
-                                # Validar coordenadas
                                 float(nuevo_lat_caja.strip().replace(',', '.'))
                                 float(nuevo_lon_caja.strip().replace(',', '.'))
 
                                 fila_caja = [
-                                    nro_caja,                           # A: N De Caja
-                                    nuevo_sector_caja,                  # B: Sector
-                                    nuevo_barrio.upper().strip(),       # C: Barrio
-                                    nuevo_lat_caja.strip(),             # D: Latitud
-                                    nuevo_lon_caja.strip(),             # E: Longitud
-                                    nuevo_obs_caja.strip(),             # F: Observacion
-                                    nuevo_cliente_ref.strip()           # G: Cliente de Referencia
+                                    nro_caja,
+                                    nuevo_sector_caja,
+                                    nuevo_barrio.upper().strip(),
+                                    nuevo_lat_caja.strip(),
+                                    nuevo_lon_caja.strip(),
+                                    nuevo_obs_caja.strip(),
+                                    nuevo_cliente_ref.strip()
                                 ]
 
                                 success, error = api_manager.safe_sheet_operation(
@@ -393,12 +364,11 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
             else:
                 # ==========================================
-                # LA CAJA SÍ EXISTE - EDICIÓN
+                # LA CAJA SI EXISTE - EDICION
                 # ==========================================
                 caja = caja_data.iloc[0]
-                caja_row_idx = caja.name + 2  # Fila en Google Sheets
+                caja_row_idx = caja.name + 2
 
-                # Resumen rápido superior
                 col_cr1, col_cr2, col_cr3, col_cr4 = st.columns(4)
                 with col_cr1:
                     st.markdown(f"**🔢 Sector:** {caja.get('Sector', 'N/A')}")
@@ -422,9 +392,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
                 st.markdown("---")
 
-                # ------------------------------------------
-                # ACORDEÓN CAJA 1: EDITAR DATOS PRINCIPALES
-                # ------------------------------------------
+                # ACORDEON CAJA 1: EDITAR DATOS PRINCIPALES
                 with st.expander("✏️ Editar Datos de la Caja NAP (Sector, Barrio, Observación, Cliente Ref)"):
                     with st.form("form_editar_caja"):
                         edit_ccol1, edit_ccol2 = st.columns(2)
@@ -474,14 +442,12 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 if success:
                                     st.success("✅ Datos de la caja NAP actualizados correctamente.")
                                     needs_refresh = True
-                                elseD else:
+                                else:
                                     st.error(f"❌ Error al actualizar datos: {error}")
                             else:
                                 st.info("ℹ️ No se detectaron cambios en los datos de la caja NAP.")
 
-                # ------------------------------------------
-                # ACORDEÓN CAJA 2: GEOREFERENCIA (COLUMNAS D y E)
-                # ------------------------------------------
+                # ACORDEON CAJA 2: GEOREFERENCIA
                 with st.expander("🗺️ Georreferencia de Caja NAP"):
                     lat_caja = str(caja.get("Latitud", "")).strip()
                     lon_caja = str(caja.get("Longitud", "")).strip()
@@ -554,6 +520,6 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                         else:
                                             st.error(f"❌ Error al guardar en la hoja: {error}")
                                     except ValueError:
-                                        st.error("❌ Las coordenadas deben ser valores numéricos (ej: -26.123456 o -26,123456).")
+                                        st.error("❌ Las coordenadas deben ser valores numéricos (ej: -26.123456).")
 
     return {"needs_refresh": needs_refresh}
