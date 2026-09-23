@@ -17,9 +17,11 @@ from config.settings import (
     WORKSHEET_RECLAMOS,
     WORKSHEET_CLIENTES, 
     WORKSHEET_USUARIOS,
+    WORKSHEET_CAJAS,
     COLUMNAS_RECLAMOS,
     COLUMNAS_CLIENTES,
     COLUMNAS_USUARIOS,
+    COLUMNAS_CAJAS,
     DEBUG_MODE,
 )
 
@@ -67,6 +69,7 @@ def init_google_sheets():
             client.open_by_key(SHEET_ID).worksheet(WORKSHEET_RECLAMOS),
             client.open_by_key(SHEET_ID).worksheet(WORKSHEET_CLIENTES),
             client.open_by_key(SHEET_ID).worksheet(WORKSHEET_USUARIOS),
+            client.open_by_key(SHEET_ID).worksheet(WORKSHEET_CAJAS),
         )
     try:
         return _connect()
@@ -75,13 +78,14 @@ def init_google_sheets():
         st.stop()
 
 # --- Carga de Datos ---
-def cargar_datos_principales(sheet_reclamos, sheet_clientes, sheet_usuarios):
+def cargar_datos_principales(sheet_reclamos, sheet_clientes, sheet_usuarios, sheet_cajas):
     """Carga los dataframes principales desde las hojas de cálculo."""
     with st.spinner("Cargando datos..."):
         df_r = safe_get_sheet_data(sheet_reclamos, COLUMNAS_RECLAMOS)
         df_c = safe_get_sheet_data(sheet_clientes, COLUMNAS_CLIENTES)
         df_u = safe_get_sheet_data(sheet_usuarios, COLUMNAS_USUARIOS)
-    return df_r, df_c, df_u
+        df_cajas = safe_get_sheet_data(sheet_cajas, COLUMNAS_CAJAS)
+    return df_r, df_c, df_u, df_cajas
 
 # --- UTILIDAD: Migración de UUIDs existentes ---
 def migrar_uuids_existentes(sheet_reclamos, sheet_clientes):
@@ -201,17 +205,18 @@ def migrar_uuids_existentes(sheet_reclamos, sheet_clientes):
         return False
 
 # --- INICIO DE LA APP ---
-sheet_reclamos, sheet_clientes, sheet_usuarios = init_google_sheets()
+sheet_reclamos, sheet_clientes, sheet_usuarios, sheet_cajas = init_google_sheets()
 
 if not check_authentication():
     render_login(sheet_usuarios)
     st.stop()
 
 # --- CARGA Y CACHEO DE DATOS ---
-df_reclamos, df_clientes, df_usuarios = cargar_datos_principales(sheet_reclamos, sheet_clientes, sheet_usuarios)
+df_reclamos, df_clientes, df_usuarios, df_cajas = cargar_datos_principales(sheet_reclamos, sheet_clientes, sheet_usuarios, sheet_cajas)
 st.session_state.df_reclamos = df_reclamos
 st.session_state.df_clientes = df_clientes
 st.session_state.df_usuarios = df_usuarios
+st.session_state.df_cajas = df_cajas
 
 # --- OBTENER INFORMACIÓN DEL USUARIO AUTENTICADO ---
 user_info = st.session_state.auth.get('user_info', {})
@@ -293,7 +298,9 @@ COMPONENTES = {
             "df_clientes": df_clientes,
             "df_reclamos": df_reclamos,
             "sheet_clientes": sheet_clientes,
-            "user_role": user_info.get('rol', '')
+            "user_role": user_info.get('rol', ''),
+            "df_cajas": df_cajas,
+            "sheet_cajas": sheet_cajas
         }
     },
     "Imprimir reclamos": {

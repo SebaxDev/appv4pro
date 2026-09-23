@@ -15,6 +15,7 @@ WORKSHEET_RECLAMOS = "Reclamos"
 WORKSHEET_CLIENTES = "Clientes"
 WORKSHEET_USUARIOS = "usuarios"
 WORKSHEET_NOTIFICACIONES = "Notificaciones"
+WORKSHEET_CAJAS = "Cajas"
 
 MAX_NOTIFICATIONS = 10  # Máximo de notificaciones a mostrar en UI
 
@@ -35,6 +36,11 @@ NOTIFICATION_TYPES = {
 COLUMNAS_NOTIFICACIONES = [
     "ID", "Tipo", "Prioridad", "Mensaje", 
     "Usuario_Destino", "ID_Reclamo", "Fecha_Hora", "Leída", "Acción"
+]
+
+COLUMNAS_CAJAS = [
+    "N De Caja", "Sector", "Barrio", "Latitud",
+    "Longitud", "Observacion", "Cliente de Referencia"
 ]
 
 # --------------------------
