@@ -105,6 +105,11 @@ OPCIONES_PERMISOS = {
 # --------------------------
 SECTORES_DISPONIBLES = [str(n) for n in range(1, 18)]
 
+# --------------------------
+# ESTADOS DE RECLAMO
+# --------------------------
+ESTADOS_RECLAMO = ["Pendiente", "En curso", "Verificado", "Desconexión", "Resuelto"]
+
 TECNICOS_DISPONIBLES = [
     "Blume", "Conejo", "Gabriel", "Juan", "Junior", "Maxi", "Marki",
     "Pedrito", "Ramon", "Rene", "Roque", "Viki", "Oficina", "Base"
