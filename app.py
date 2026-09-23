@@ -255,8 +255,8 @@ except Exception:
     en_curso_count = 0
     verificados_count = 0
 
-# Ajustamos las proporciones para dar más espacio a las 4 métricas
-header_cols = st.columns([5, 2.5, 1.2, 1.3])
+# Ajustamos las 5 columnas: [Métricas, Usuario, Modo Oscuro, Sincronizar, Salir]
+header_cols = st.columns([5, 2.3, 1.2, 1.3, 1.1])
 
 with header_cols[0]:
     mcol1, mcol2, mcol3, mcol4 = st.columns(4)
@@ -277,19 +277,16 @@ with header_cols[2]:
         st.session_state.modo_oscuro = st.session_state.dark_mode_toggle
     st.checkbox("🌙 Modo Oscuro", value=st.session_state.modo_oscuro, key="dark_mode_toggle", on_change=toggle_dark_mode)
 
+# Botón directo en la barra superior (entre Modo Oscuro y Salir)
 with header_cols[3]:
+    if st.button("🔄 Sincronizar", use_container_width=True, help="Refrescar datos desde Google Sheets"):
+        st.cache_data.clear()
+        st.rerun()
+
+with header_cols[4]:
     if st.button("Salir 🚪", use_container_width=True):
         st.session_state.auth['logged_in'] = False
         st.session_state.auth['user_info'] = {}
-        st.rerun()
-
-# ==========================================
-# 🟢 AQUÍ PODÉS AGREGAR EL BOTÓN EN EL SIDEBAR:
-# ==========================================
-with st.sidebar:
-    st.markdown("### ⚙️ Datos")
-    if st.button("🔄 Sincronizar datos", use_container_width=True):
-        st.cache_data.clear()
         st.rerun()
 
 render_main_navigation()
