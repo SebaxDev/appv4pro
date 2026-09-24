@@ -369,6 +369,8 @@ if opcion in COMPONENTES and has_permission(COMPONENTES[opcion]["permiso"]):
         resultado = COMPONENTES[opcion]["render"](**COMPONENTES[opcion]["params"])
         
         if resultado and resultado.get('needs_refresh'):
+            st.cache_data.clear()
+            time.sleep(1)
             st.rerun()
 
 # --- FOOTER Y RESUMEN ---
