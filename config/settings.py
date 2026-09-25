@@ -38,9 +38,12 @@ COLUMNAS_NOTIFICACIONES = [
     "Usuario_Destino", "ID_Reclamo", "Fecha_Hora", "Leída", "Acción"
 ]
 
+# Agregá las opciones de Splitter disponibles:
+SPLITTERS_DISPONIBLES = ["1/4", "1/8", "1/16"]
+
 COLUMNAS_CAJAS = [
     "N De Caja", "Sector", "Barrio", "Latitud",
-    "Longitud", "Observacion", "Cliente de Referencia"
+    "Longitud", "Observacion", "Cliente de Referencia", "Splitter"
 ]
 
 # --------------------------

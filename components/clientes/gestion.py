@@ -5,7 +5,7 @@ from utils.api_manager import api_manager
 from utils.data_manager import batch_update_sheet as dm_batch_update_sheet
 from utils.date_utils import ahora_argentina, format_fecha
 from components.reclamos.nuevo import generar_id_unico
-from config.settings import SECTORES_DISPONIBLES, PLANES_DISPONIBLES, DEBUG_MODE
+from config.settings import SECTORES_DISPONIBLES, PLANES_DISPONIBLES, SPLITTERS_DISPONIBLES, DEBUG_MODE
 
 
 def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role, df_cajas=None, sheet_cajas=None):
@@ -317,12 +317,21 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                         nuevo_lat_caja = st.text_input("📍 Latitud", value="-26.", key="caja_lat_new")
                         nuevo_lon_caja = st.text_input("📍 Longitud", value="-59.", key="caja_lon_new")
 
-                    nuevo_obs_caja = st.text_input("📝 Observación", placeholder="Observaciones (opcional)")
-                    nuevo_cliente_ref = st.text_input(
-                        "👤 Cliente de Referencia",
-                        value=default_cliente_ref,
-                        placeholder="Nº de cliente de referencia"
-                    )
+                    col_c3, col_c4 = st.columns(2)
+                    with col_c3:
+                        nuevo_obs_caja = st.text_input("📝 Observación", placeholder="Observaciones (opcional)")
+                        nuevo_cliente_ref = st.text_input(
+                            "👤 Cliente de Referencia",
+                            value=default_cliente_ref,
+                            placeholder="Nº de cliente de referencia"
+                        )
+                    with col_c4:
+                        nuevo_splitter = st.selectbox(
+                            "🔀 Splitter*",
+                            options=SPLITTERS_DISPONIBLES,
+                            index=1,
+                            key="caja_splitter_new"
+                        )
 
                     submit_crear_caja = st.form_submit_button("✅ Crear Nueva Caja NAP", use_container_width=True)
 
@@ -341,7 +350,8 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                     nuevo_lat_caja.strip(),
                                     nuevo_lon_caja.strip(),
                                     nuevo_obs_caja.strip(),
-                                    nuevo_cliente_ref.strip()
+                                    nuevo_cliente_ref.strip(),
+                                    nuevo_splitter.strip()
                                 ]
 
                                 success, error = api_manager.safe_sheet_operation(
@@ -369,7 +379,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                 caja = caja_data.iloc[0]
                 caja_row_idx = caja.name + 2
 
-                col_cr1, col_cr2, col_cr3, col_cr4 = st.columns(4)
+                col_cr1, col_cr2, col_cr3, col_cr4, col_cr5 = st.columns(5)
                 with col_cr1:
                     st.markdown(f"**🔢 Sector:** {caja.get('Sector', 'N/A')}")
                 with col_cr2:
@@ -377,6 +387,10 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                 with col_cr3:
                     st.markdown(f"**👤 Cliente Ref:** {caja.get('Cliente de Referencia', 'N/A')}")
                 with col_cr4:
+                    splitter_val = caja.get('Splitter', '')
+                    splitter_display = splitter_val if splitter_val and str(splitter_val).strip() not in ('', 'nan', 'None') else 'Sin asignar'
+                    st.markdown(f"**🔀 Splitter:** `{splitter_display}`")
+                with col_cr5:
                     lat_c = str(caja.get('Latitud', '')).strip()
                     lon_c = str(caja.get('Longitud', '')).strip()
                     if lat_c not in ("", "nan", "None") and lon_c not in ("", "nan", "None"):
@@ -393,7 +407,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                 st.markdown("---")
 
                 # ACORDEON CAJA 1: EDITAR DATOS PRINCIPALES
-                with st.expander("✏️ Editar Datos de la Caja NAP (Sector, Barrio, Observación, Cliente Ref)"):
+                with st.expander("✏️ Editar Datos de la Caja NAP (Sector, Barrio, Observación, Cliente Ref, Splitter)"):
                     with st.form("form_editar_caja"):
                         edit_ccol1, edit_ccol2 = st.columns(2)
 
@@ -409,15 +423,26 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             edit_barrio = st.text_input(
                                 "🏘️ Barrio", value=str(caja.get("Barrio", "")), key="caja_barrio_edit"
                             )
-
-                        with edit_ccol2:
                             edit_obs_caja = st.text_input(
                                 "📝 Observación", value=str(caja.get("Observacion", "")), key="caja_obs_edit"
                             )
+
+                        with edit_ccol2:
                             edit_cliente_ref = st.text_input(
                                 "👤 Cliente de Referencia",
                                 value=str(caja.get("Cliente de Referencia", "")),
                                 key="caja_ref_edit"
+                            )
+                            splitter_actual = str(caja.get("Splitter", "")).strip()
+                            try:
+                                splitter_idx = SPLITTERS_DISPONIBLES.index(splitter_actual) if splitter_actual in SPLITTERS_DISPONIBLES else 1
+                            except ValueError:
+                                splitter_idx = 1
+                            edit_splitter = st.selectbox(
+                                "🔀 Splitter",
+                                options=SPLITTERS_DISPONIBLES,
+                                index=splitter_idx,
+                                key="caja_splitter_edit"
                             )
 
                         submit_edit_caja = st.form_submit_button("💾 Guardar Cambios en Caja NAP", use_container_width=True)
@@ -436,6 +461,9 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
                             if str(caja.get("Cliente de Referencia", "")).strip() != edit_cliente_ref.strip():
                                 updates.append({"range": f"G{caja_row_idx}", "values": [[edit_cliente_ref.strip()]]})
+
+                            if str(caja.get("Splitter", "")).strip() != edit_splitter.strip():
+                                updates.append({"range": f"H{caja_row_idx}", "values": [[edit_splitter.strip()]]})
 
                             if updates:
                                 success, error = dm_batch_update_sheet(sheet_cajas, updates)
