@@ -112,28 +112,28 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
             # ACORDEON 1: EDITAR DATOS PRINCIPALES
             with st.expander("✏️ Editar Datos del Cliente (Sector, Nombre, Dirección, Teléfono, Plan)"):
-                with st.form("form_editar_datos"):
+                with st.form(f"form_editar_datos_{row_idx}"):
                     edit_col1, edit_col2 = st.columns(2)
 
                     with edit_col1:
-                        edit_nombre = st.text_input("👤 Nombre", value=cliente.get("Nombre", ""))
-                        edit_direccion = st.text_input("📍 Dirección", value=cliente.get("Dirección", ""))
+                        edit_nombre = st.text_input("👤 Nombre", value=cliente.get("Nombre", ""), key=f"cli_nom_{row_idx}")
+                        edit_direccion = st.text_input("📍 Dirección", value=cliente.get("Dirección", ""), key=f"cli_dir_{row_idx}")
 
                     with edit_col2:
-                        edit_telefono = st.text_input("📞 Teléfono", value=str(cliente.get("Teléfono", "")))
+                        edit_telefono = st.text_input("📞 Teléfono", value=str(cliente.get("Teléfono", "")), key=f"cli_tel_{row_idx}")
                         sector_actual = str(cliente.get("Sector", "1")).strip()
                         try:
                             sector_idx = SECTORES_DISPONIBLES.index(sector_actual) if sector_actual in SECTORES_DISPONIBLES else 0
                         except ValueError:
                             sector_idx = 0
-                        edit_sector = st.selectbox("🔢 Sector", options=SECTORES_DISPONIBLES, index=sector_idx)
+                        edit_sector = st.selectbox("🔢 Sector", options=SECTORES_DISPONIBLES, index=sector_idx, key=f"cli_sec_{row_idx}")
 
                         plan_actual = str(cliente.get("Plan", "")).strip()
                         try:
                             plan_idx = PLANES_DISPONIBLES.index(plan_actual) if plan_actual in PLANES_DISPONIBLES else 0
                         except ValueError:
                             plan_idx = 0
-                        edit_plan = st.selectbox("📺 Plan", options=PLANES_DISPONIBLES, index=plan_idx)
+                        edit_plan = st.selectbox("📺 Plan", options=PLANES_DISPONIBLES, index=plan_idx, key=f"cli_plan_{row_idx}")
 
                     submit_edit = st.form_submit_button("💾 Guardar Cambios en Datos", use_container_width=True)
 
@@ -169,8 +169,8 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
                 if has_precinto:
                     st.markdown(f"**Precinto actual:** `{precinto}`")
-                    with st.form("form_editar_precinto"):
-                        new_precinto = st.text_input("Modificar N° de Precinto", value=precinto)
+                    with st.form(f"form_editar_precinto_{row_idx}"):
+                        new_precinto = st.text_input("Modificar N° de Precinto", value=precinto, key=f"cli_prec_edit_{row_idx}")
                         submit_precinto = st.form_submit_button("💾 Actualizar Precinto")
 
                         if submit_precinto:
@@ -188,8 +188,8 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 st.info("ℹ️ El precinto es el mismo, sin cambios.")
                 else:
                     st.warning("Este cliente no tiene precinto registrado.")
-                    with st.form("form_cargar_precinto"):
-                        new_precinto = st.text_input("Ingresar N° de Precinto")
+                    with st.form(f"form_cargar_precinto_{row_idx}"):
+                        new_precinto = st.text_input("Ingresar N° de Precinto", key=f"cli_prec_new_{row_idx}")
                         submit_precinto = st.form_submit_button("💾 Guardar Precinto")
 
                         if submit_precinto:
@@ -223,9 +223,9 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                     maps_url = f"https://www.google.com/maps?q={lat},{lon}"
                     st.markdown(f"🗺️ [Ver ubicación en Google Maps]({maps_url})")
 
-                    with st.form("form_editar_geo"):
-                        edit_lat = st.text_input("Latitud", value=lat)
-                        edit_lon = st.text_input("Longitud", value=lon)
+                    with st.form(f"form_editar_geo_{row_idx}"):
+                        edit_lat = st.text_input("Latitud", value=lat, key=f"cli_lat_edit_{row_idx}")
+                        edit_lon = st.text_input("Longitud", value=lon, key=f"cli_lon_edit_{row_idx}")
                         submit_edit_geo = st.form_submit_button("💾 Actualizar Coordenadas")
 
                         if submit_edit_geo:
@@ -249,12 +249,12 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                     default_lat = "-26."
                     default_lon = "-59."
 
-                    with st.form("form_cargar_geo"):
+                    with st.form(f"form_cargar_geo_{row_idx}"):
                         val_lat = lat if lat not in ("nan", "None", "") else default_lat
                         val_lon = lon if lon not in ("nan", "None", "") else default_lon
 
-                        new_lat = st.text_input("Latitud", value=val_lat)
-                        new_lon = st.text_input("Longitud", value=val_lon)
+                        new_lat = st.text_input("Latitud", value=val_lat, key=f"cli_lat_new_{row_idx}")
+                        new_lon = st.text_input("Longitud", value=val_lon, key=f"cli_lon_new_{row_idx}")
                         submitted = st.form_submit_button("💾 Guardar Coordenadas")
 
                         if submitted:
@@ -408,7 +408,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
                 # ACORDEON CAJA 1: EDITAR DATOS PRINCIPALES
                 with st.expander("✏️ Editar Datos de la Caja NAP (Sector, Barrio, Observación, Cliente Ref, Splitter)"):
-                    with st.form("form_editar_caja"):
+                    with st.form(f"form_editar_caja_{caja_row_idx}"):
                         edit_ccol1, edit_ccol2 = st.columns(2)
 
                         with edit_ccol1:
@@ -418,20 +418,20 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             except ValueError:
                                 sector_idx_caja = 0
                             edit_sector_caja = st.selectbox(
-                                "🔢 Sector", options=SECTORES_DISPONIBLES, index=sector_idx_caja, key="caja_sector_edit"
+                                "🔢 Sector", options=SECTORES_DISPONIBLES, index=sector_idx_caja, key=f"caja_sec_{caja_row_idx}"
                             )
                             edit_barrio = st.text_input(
-                                "🏘️ Barrio", value=str(caja.get("Barrio", "")), key="caja_barrio_edit"
+                                "🏘️ Barrio", value=str(caja.get("Barrio", "")), key=f"caja_barrio_{caja_row_idx}"
                             )
                             edit_obs_caja = st.text_input(
-                                "📝 Observación", value=str(caja.get("Observacion", "")), key="caja_obs_edit"
+                                "📝 Observación", value=str(caja.get("Observacion", "")), key=f"caja_obs_{caja_row_idx}"
                             )
 
                         with edit_ccol2:
                             edit_cliente_ref = st.text_input(
                                 "👤 Cliente de Referencia",
                                 value=str(caja.get("Cliente de Referencia", "")),
-                                key="caja_ref_edit"
+                                key=f"caja_ref_{caja_row_idx}"
                             )
                             splitter_actual = str(caja.get("Splitter", "")).strip()
                             try:
@@ -442,7 +442,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 "🔀 Splitter",
                                 options=SPLITTERS_DISPONIBLES,
                                 index=splitter_idx,
-                                key="caja_splitter_edit"
+                                key=f"caja_splitter_{caja_row_idx}"
                             )
 
                         submit_edit_caja = st.form_submit_button("💾 Guardar Cambios en Caja NAP", use_container_width=True)
@@ -494,9 +494,9 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                         maps_url_caja = f"https://www.google.com/maps?q={lat_caja},{lon_caja}"
                         st.markdown(f"🗺️ [Ver ubicación en Google Maps]({maps_url_caja})")
 
-                        with st.form("form_editar_geo_caja"):
-                            edit_lat_caja = st.text_input("Latitud", value=lat_caja, key="caja_lat_edit")
-                            edit_lon_caja = st.text_input("Longitud", value=lon_caja, key="caja_lon_edit")
+                        with st.form(f"form_editar_geo_caja_{caja_row_idx}"):
+                            edit_lat_caja = st.text_input("Latitud", value=lat_caja, key=f"caja_lat_edit_{caja_row_idx}")
+                            edit_lon_caja = st.text_input("Longitud", value=lon_caja, key=f"caja_lon_edit_{caja_row_idx}")
                             submit_edit_geo_caja = st.form_submit_button("💾 Actualizar Coordenadas")
 
                             if submit_edit_geo_caja:
@@ -521,12 +521,12 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                         default_lat_caja = "-26."
                         default_lon_caja = "-59."
 
-                        with st.form("form_cargar_geo_caja"):
+                        with st.form(f"form_cargar_geo_caja_{caja_row_idx}"):
                             val_lat_caja = lat_caja if lat_caja not in ("nan", "None", "") else default_lat_caja
                             val_lon_caja = lon_caja if lon_caja not in ("nan", "None", "") else default_lon_caja
 
-                            new_lat_caja = st.text_input("Latitud", value=val_lat_caja, key="caja_lat_new_geo")
-                            new_lon_caja = st.text_input("Longitud", value=val_lon_caja, key="caja_lon_new_geo")
+                            new_lat_caja = st.text_input("Latitud", value=val_lat_caja, key=f"caja_lat_new_{caja_row_idx}")
+                            new_lon_caja = st.text_input("Longitud", value=val_lon_caja, key=f"caja_lon_new_{caja_row_idx}")
                             submitted_caja_geo = st.form_submit_button("💾 Guardar Coordenadas")
 
                             if submitted_caja_geo:
