@@ -4,6 +4,7 @@ google-auth-oauthlib
 google-auth-httplib2
 gspread
 pandas
+python-dateutil
 reportlab
 pytz
 streamlit-lottie
