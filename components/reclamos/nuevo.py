@@ -145,11 +145,11 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
 
         if not match.empty:
             estado['cliente_existente'] = match.iloc[0].to_dict()
-            st.success("✅ Cliente reconocido, datos auto-cargados.")
+            st.success("✅ Cliente reconocido. Carga directa de reclamo habilitada.")
 
         else:
             estado['cliente_nuevo'] = True
-            st.info("ℹ️ Este cliente no existe en la base y se cargará como cliente nuevo.")
+            st.info("ℹ️ Este cliente no existe en la base. Completá el formulario para registrarlo junto al reclamo.")
 
         # Verificar reclamos activos
         reclamos_activos = _verificar_reclamos_activos(estado['nro_cliente'], df_reclamos_norm)
@@ -213,99 +213,138 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
 
 # --- FUNCIÓN DE FORMULARIO MEJORADA ---
 def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clientes, current_user):
-    """Muestra y procesa el formulario de nuevo reclamo con anotaciones previas"""
+    """Muestra y procesa el formulario de nuevo reclamo con carga ágil"""
+
+    # Extraer la lista de Cajas NAP dinámicamente desde el session_state
+    opciones_cajas = [""]
+    df_cajas = st.session_state.get('df_cajas')
+    if df_cajas is not None and not df_cajas.empty and "N De Caja" in df_cajas.columns:
+        cajas_validas = [str(c).strip() for c in df_cajas["N De Caja"].dropna().tolist() if str(c).strip() not in ("", "nan", "None")]
+        cajas_validas = sorted(list(set(cajas_validas)))
+        opciones_cajas.extend(cajas_validas)
 
     # Mostrar anotaciones previas si el cliente existe y tiene anotaciones
     if estado['cliente_existente']:
         anotaciones_previas = estado['cliente_existente'].get("Anotaciones", "")
         if anotaciones_previas and anotaciones_previas.strip():
-            # Mejoramos el formato de visualización
             st.markdown("### 📋 Anotación anterior del cliente")
             st.info(f"**{anotaciones_previas}**")
 
-    with st.form("reclamo_formulario", clear_on_submit=False):
-        col1, col2 = st.columns(2)
-
-        # Datos del cliente (existe o nuevo)
-        if estado['cliente_existente']:
-            cliente_data = estado['cliente_existente']
+    # ========================================================
+    # VISTA PARA CLIENTE EXISTENTE (Carga Ágil)
+    # ========================================================
+    if estado['cliente_existente']:
+        cliente_data = estado['cliente_existente']
+        
+        with st.form("reclamo_formulario", clear_on_submit=False):
+            # 1. BLOQUE PRINCIPAL: RECLAMO
+            st.markdown("### 📌 Detalle del Reclamo")
+            tipo_reclamo = st.selectbox("Tipo de Reclamo*", TIPOS_RECLAMO)
+            detalles = st.text_area("📝 Detalles u observaciones del reclamo", placeholder="Describe el problema...", height=80)
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                atendido_por = st.text_input("👤 Atendido por*", value=current_user or "")
+            with col_b:
+                st.write("") # Espaciador
+            
+            st.markdown("---")
+            
+            # 2. BLOQUE SECUNDARIO: DATOS DEL CLIENTE
+            st.markdown("#### 👤 Datos del Cliente (Verificar o modificar si es necesario)")
+            col1, col2 = st.columns(2)
 
             with col1:
-                nombre = st.text_input(
-                    "👤 Nombre del Cliente",
-                    value=cliente_data.get("Nombre", "")
-                )
-                direccion = st.text_input(
-                    "📍 Dirección",
-                    value=cliente_data.get("Dirección", "")
-                )
+                nombre = st.text_input("👤 Nombre del Cliente*", value=cliente_data.get("Nombre", ""))
+                direccion = st.text_input("📍 Dirección*", value=cliente_data.get("Dirección", ""))
+                
+                # Plan
+                plan_default = cliente_data.get("Plan", "")
+                try:
+                    plan_index = PLANES_DISPONIBLES.index(plan_default) if plan_default in PLANES_DISPONIBLES else 0
+                except (ValueError, TypeError):
+                    plan_index = 0
+                plan = st.selectbox("📺 Plan del Cliente*", PLANES_DISPONIBLES, index=plan_index)
+                
+                # Caja NAP
+                caja_actual_cli = str(cliente_data.get("Caja NAP", "")).strip().replace("nan", "")
+                if caja_actual_cli == "None": caja_actual_cli = ""
+                
+                opciones_cajas_edit = opciones_cajas.copy()
+                if caja_actual_cli and caja_actual_cli not in opciones_cajas_edit:
+                    opciones_cajas_edit.append(caja_actual_cli)
+                    
+                try:
+                    caja_idx = opciones_cajas_edit.index(caja_actual_cli)
+                except ValueError:
+                    caja_idx = 0
+                    
+                caja_nap = st.selectbox("📦 Caja NAP", options=opciones_cajas_edit, index=caja_idx)
 
             with col2:
-                telefono = st.text_input(
-                    "📞 Teléfono",
-                    value=cliente_data.get("Teléfono", "")
-                )
-
-                # Sector con validación mejorada
+                telefono = st.text_input("📞 Teléfono", value=cliente_data.get("Teléfono", ""))
+                
+                # Sector
                 sector_existente = cliente_data.get("Sector", "1")
                 sector_normalizado, error_sector = _validar_y_normalizar_sector(sector_existente)
-
                 if error_sector:
                     st.warning(error_sector)
-                    sector = st.text_input("🔢 Sector (1-17)", value="1")
+                    sector = st.text_input("🔢 Sector (1-17)*", value="1")
                 else:
-                    sector = st.text_input("🔢 Sector (1-17)", value=sector_normalizado)
+                    sector = st.text_input("🔢 Sector (1-17)*", value=sector_normalizado)
+                    
+                precinto = st.text_input("🔒 N° de Precinto (opcional)", value=str(cliente_data.get("N° de Precinto", "")).replace("nan", ""))
 
-            # Plan del cliente (precargado si existe)
-            plan_default = cliente_data.get("Plan", "")
-            try:
-                plan_index = PLANES_DISPONIBLES.index(plan_default) if plan_default in PLANES_DISPONIBLES else 0
-            except (ValueError, TypeError):
-                plan_index = 0
-            plan = st.selectbox("📺 Plan del Cliente", PLANES_DISPONIBLES, index=plan_index)
+            enviado = st.form_submit_button("✅ Generar Reclamo", use_container_width=True)
 
-        else:
+    # ========================================================
+    # VISTA PARA CLIENTE NUEVO (Carga Completa)
+    # ========================================================
+    else:
+        with st.form("reclamo_formulario", clear_on_submit=False):
+            # 1. BLOQUE PRINCIPAL: DATOS DEL CLIENTE NUEVO
+            st.markdown("### 👤 Datos del Nuevo Cliente")
+            col1, col2 = st.columns(2)
+            
             with col1:
-                nombre = st.text_input("👤 Nombre del Cliente", placeholder="Nombre completo")
-                direccion = st.text_input("📍 Dirección", placeholder="Dirección completa")
+                nombre = st.text_input("👤 Nombre del Cliente*", placeholder="Nombre completo")
+                direccion = st.text_input("📍 Dirección*", placeholder="Dirección completa")
+                plan = st.selectbox("📺 Plan del Cliente*", PLANES_DISPONIBLES, index=0)
+                caja_nap = st.selectbox("📦 Caja NAP (opcional)", options=opciones_cajas, index=0)
 
             with col2:
                 telefono = st.text_input("📞 Teléfono", placeholder="Número de contacto")
-                sector = st.text_input("🔢 Sector (1-17)", placeholder="Ej: 5")
+                sector = st.text_input("🔢 Sector (1-17)*", placeholder="Ej: 5")
+                precinto = st.text_input("🔒 N° de Precinto (opcional)", placeholder="Número de precinto")
 
-            plan = st.selectbox("📺 Plan del Cliente", PLANES_DISPONIBLES, index=0)
+            st.markdown("---")
+            
+            # 2. BLOQUE SECUNDARIO: RECLAMO
+            st.markdown("### 📌 Detalle del Reclamo")
+            tipo_reclamo = st.selectbox("Tipo de Reclamo*", TIPOS_RECLAMO)
+            detalles = st.text_area("📝 Detalles u observaciones del reclamo", placeholder="Describe el problema...", height=80)
+            
+            col3, col4 = st.columns(2)
+            with col3:
+                atendido_por = st.text_input("👤 Atendido por*", placeholder="Nombre de quien atiende", value=current_user or "")
+            with col4:
+                st.write("") # Espaciador
 
-        # Campos del reclamo
-        tipo_reclamo = st.selectbox("📌 Tipo de Reclamo", TIPOS_RECLAMO)
-        detalles = st.text_area("📝 Detalles del Reclamo", placeholder="Describe el problema...", height=100)
+            enviado = st.form_submit_button("✅ Crear Cliente y Guardar Reclamo", use_container_width=True)
 
-        col3, col4 = st.columns(2)
-        with col3:
-            precinto = st.text_input(
-                "🔒 N° de Precinto (opcional)",
-                value=estado['cliente_existente'].get("N° de Precinto", "") if estado['cliente_existente'] else "",
-                placeholder="Número de precinto"
-            )
-
-        with col4:
-            atendido_por = st.text_input(
-                "👤 Atendido por", 
-                placeholder="Nombre de quien atiende", 
-                value=current_user or ""
-            )
-
-        enviado = st.form_submit_button("✅ Guardar Reclamo", use_container_width=True)
-
+    # ========================================================
+    # PROCESAMIENTO
+    # ========================================================
     if enviado:
         _procesar_envio_formulario(
             estado, nombre, direccion, telefono, sector, 
-            tipo_reclamo, detalles, precinto, atendido_por, plan,
+            tipo_reclamo, detalles, precinto, atendido_por, plan, caja_nap,
             df_clientes, sheet_reclamos, sheet_clientes
         )
 
 # --- FUNCIÓN DE PROCESAMIENTO OPTIMIZADA ---
 def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo_reclamo, 
-                              detalles, precinto, atendido_por, plan, df_clientes, sheet_reclamos, sheet_clientes):
+                              detalles, precinto, atendido_por, plan, caja_nap, df_clientes, sheet_reclamos, sheet_clientes):
     """Procesa el envío del formulario de manera optimizada"""
 
     # Validar campos obligatorios
@@ -333,7 +372,7 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
 
             id_reclamo = generar_id_unico()
 
-            # Construcción de la fila de datos para la hoja de cálculo (A-P, 16 columnas)
+            # Construcción de la fila de datos para la hoja de Reclamos (Exactamente 16 columnas)
             fila_reclamo = [
                 format_fecha(fecha_hora),       # A: Fecha y hora
                 estado['nro_cliente'],          # B: Nº Cliente
@@ -349,8 +388,8 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
                 atendido_por.upper().strip(),   # L: Atendido por
                 "",                             # M: Fecha_formateada (se llena al cerrar)
                 "",                             # N: Anotaciones (vacío al crear)
-                "",                             # O: [Columna vacía / Gap para alinear con P]
-                id_reclamo                      # P: ID Reclamo (Corregido para coincidir con planificación)
+                id_reclamo,                     # O: ID Reclamo
+                plan                            # P: Plan
             ]
 
             # --- Interacción con Google Sheets ---
@@ -360,18 +399,6 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
             )
 
             if success:
-                # Escribir plan en columna S (índice 19) de la hoja Reclamos
-                try:
-                    id_values = sheet_reclamos.col_values(16)  # Columna O = ID Reclamo
-                    for i in range(1, len(id_values)):
-                        if id_values[i] == id_reclamo:
-                            row_number = i + 1
-                            sheet_reclamos.update_cell(row_number, 19, plan)
-                            break
-                except Exception as e:
-                    if DEBUG_MODE:
-                        st.warning(f"Debug: No se pudo escribir plan en col S: {e}")
-
                 estado.update({
                     'reclamo_guardado': True,
                     'formulario_bloqueado': True
@@ -379,10 +406,10 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
 
                 st.success(f"✅ Reclamo guardado - ID: {id_reclamo}")
 
-                # Gestionar cliente (nuevo o actualización)
+                # Gestionar cliente (nuevo o actualización) pasándole la caja_nap
                 _gestionar_cliente(
                     estado['nro_cliente'], sector_normalizado, nombre, 
-                    direccion, telefono, precinto, plan, df_clientes, sheet_clientes
+                    direccion, telefono, precinto, plan, caja_nap, df_clientes, sheet_clientes
                 )
 
                 st.cache_data.clear()
@@ -391,19 +418,19 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
                 st.rerun()
 
             else:
-                st.error(f"❌ Error al guardar: {error}")
+                st.error(f"❌ Error al guardar el reclamo: {error}")
 
         except Exception as e:
             st.error(f"❌ Error inesperado: {str(e)}")
             if DEBUG_MODE:
                 st.exception(e)
 
-def _gestionar_cliente(nro_cliente, sector, nombre, direccion, telefono, precinto, plan, df_clientes, sheet_clientes):
+def _gestionar_cliente(nro_cliente, sector, nombre, direccion, telefono, precinto, plan, caja_nap, df_clientes, sheet_clientes):
     """Gestiona la creación o actualización del cliente, preservando anotaciones existentes"""
     cliente_existente = df_clientes[df_clientes["Nº Cliente"] == nro_cliente]
 
     if cliente_existente.empty:
-        # Crear nuevo cliente con UUID y última modificación
+        # Crear nuevo cliente con UUID y última modificación (Exactamente 13 columnas)
         id_cliente = generar_id_unico()
         ultima_mod = format_fecha(ahora_argentina())
         fila_cliente = [
@@ -415,18 +442,17 @@ def _gestionar_cliente(nro_cliente, sector, nombre, direccion, telefono, precint
             precinto.strip(),      # F: N° de Precinto
             id_cliente,            # G: ID Cliente
             ultima_mod,            # H: Última Modificación
-            "",                     # I: Anotaciones (vacío para nuevo cliente)
-            "",                     # J: Latitud
-            "",                     # K: Longitud
-            plan                    # L: Plan
+            "",                    # I: Anotaciones (vacío para nuevo cliente)
+            "",                    # J: Latitud
+            "",                    # K: Longitud
+            plan,                  # L: Plan
+            caja_nap.strip()       # M: Caja NAP
         ]
         success, _ = api_manager.safe_sheet_operation(sheet_clientes.append_row, fila_cliente)
         if success:
-            st.info("ℹ️ Nuevo cliente registrado con ID asignado")
+            st.info("ℹ️ Nuevo cliente registrado exitosamente.")
     else:
         # Actualizar cliente existente pero preservar anotaciones
-        anotaciones_existentes = cliente_existente.iloc[0].get("Anotaciones", "")
-
         updates = []
         idx = cliente_existente.index[0] + 2
 
@@ -448,10 +474,13 @@ def _gestionar_cliente(nro_cliente, sector, nombre, direccion, telefono, precint
 
         if str(cliente_existente.iloc[0].get("Plan", "")).strip() != plan.strip():
             updates.append({"range": f"L{idx}", "values": [[plan]]})
+            
+        if str(cliente_existente.iloc[0].get("Caja NAP", "")).strip() != caja_nap.strip():
+            updates.append({"range": f"M{idx}", "values": [[caja_nap.strip()]]})
 
         if updates:
             success, _ = api_manager.safe_sheet_operation(
                 batch_update_sheet, sheet_clientes, updates, is_batch=True
             )
             if success:
-                st.info("🔁 Datos del cliente actualizados")
+                st.info("🔁 Datos del cliente actualizados según lo modificado en el formulario.")

@@ -1363,18 +1363,34 @@ def _generar_pdf_asignaciones(grupos_activos, materiales_por_grupo, df_pendiente
                 else:
                     plan_cliente = "N/A"
 
+            # Obtener Caja NAP del cliente (del reclamo o de la hoja Clientes)
+            caja_cliente = str(reclamo.get('Caja NAP', '')).strip()
+            if not caja_cliente or caja_cliente.lower() in ('nan', 'none', ''):
+                if df_clientes is not None and not df_clientes.empty:
+                    cliente_match = df_clientes[
+                        df_clientes["Nº Cliente"].astype(str).str.strip() == str(reclamo.get('Nº Cliente', '')).strip()
+                    ]
+                    if not cliente_match.empty:
+                        caja_cliente = str(cliente_match.iloc[0].get("Caja NAP", "S/C")).strip() or "S/C"
+                else:
+                    caja_cliente = "S/C"
+            if caja_cliente.lower() in ('nan', 'none', ''):
+                caja_cliente = "S/C"
+
             detalles_raw = str(reclamo.get('Detalles', '')).strip()
             if detalles_raw == 'nan':
                 detalles_raw = ''
             if len(detalles_raw) > 200:
                 detalles_raw = detalles_raw[:200] + "..."
 
-            fecha_wrapped = [f"Fecha: {fecha_pdf}"]
+            fecha_wrapped = _wrap_text(
+                f"Fecha: {fecha_pdf} - Plan: {plan_cliente}", font_body, size_body, max_text_width, c
+            )
             direccion_wrapped = _wrap_text(
                 f"Dirección: {direccion}", font_body, size_body, max_text_width, c
             )
             tel_wrapped = _wrap_text(
-                f"Tel: {telefono} - Precinto: {precinto} - Plan: {plan_cliente}",
+                f"Tel: {telefono} - Precinto: {precinto} - Caja: {caja_cliente}",
                 font_body, size_body, max_text_width, c
             )
             tipo_wrapped = [f"Tipo: {reclamo['Tipo de reclamo']}"]
