@@ -43,7 +43,11 @@ SPLITTERS_DISPONIBLES = ["1/4", "1/8", "1/16"]
 
 COLUMNAS_CAJAS = [
     "N De Caja", "Sector", "Barrio", "Latitud",
-    "Longitud", "Observacion", "Cliente de Referencia", "Splitter"
+    "Longitud", "Observacion", "Cliente de Referencia", "Splitter",
+    "Precinto 1", "Precinto 2", "Precinto 3", "Precinto 4",
+    "Precinto 5", "Precinto 6", "Precinto 7", "Precinto 8",
+    "Precinto 9", "Precinto 10", "Precinto 11", "Precinto 12",
+    "Precinto 13", "Precinto 14", "Precinto 15", "Precinto 16"
 ]
 
 # --------------------------
@@ -60,7 +64,7 @@ COLUMNAS_RECLAMOS = [
 COLUMNAS_CLIENTES = [
     "Nº Cliente", "Sector", "Nombre", "Dirección", 
     "Teléfono", "N° de Precinto", "ID Cliente", "Última Modificación", 
-    "Anotaciones", "Latitud", "Longitud", "Plan"
+    "Anotaciones", "Latitud", "Longitud", "Plan", "Caja NAP"
 ]
 
 COLUMNAS_USUARIOS = [

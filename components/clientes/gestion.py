@@ -7,6 +7,22 @@ from utils.date_utils import ahora_argentina, format_fecha
 from components.reclamos.nuevo import generar_id_unico
 from config.settings import SECTORES_DISPONIBLES, PLANES_DISPONIBLES, SPLITTERS_DISPONIBLES, DEBUG_MODE
 
+def verificar_precinto_duplicado(df_clientes, precinto, cliente_id_ignorar=None):
+    """
+    Busca si un precinto ya está asignado a otro cliente.
+    Retorna la fila del cliente si existe, de lo contrario None.
+    """
+    if not precinto or pd.isna(precinto) or str(precinto).strip() == "":
+        return None
+    
+    df_filtro = df_clientes[df_clientes["N° de Precinto"].astype(str).str.strip() == str(precinto).strip()]
+    
+    if cliente_id_ignorar:
+        df_filtro = df_filtro[df_filtro["Nº Cliente"].astype(str).str.strip() != str(cliente_id_ignorar).strip()]
+        
+    if not df_filtro.empty:
+        return df_filtro.iloc[0]
+    return None
 
 def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role, df_cajas=None, sheet_cajas=None):
     """
@@ -42,13 +58,14 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                 with col1:
                     nuevo_nombre = st.text_input("👤 Nombre*", placeholder="Nombre completo")
                     nuevo_direccion = st.text_input("📍 Dirección*", placeholder="Dirección completa")
+                    nuevo_plan = st.selectbox("📺 Plan", options=PLANES_DISPONIBLES, index=0)
 
                 with col2:
                     nuevo_telefono = st.text_input("📞 Teléfono", placeholder="Número de contacto")
                     nuevo_sector = st.selectbox("🔢 Sector*", options=SECTORES_DISPONIBLES, index=0)
+                    nuevo_caja_nap = st.text_input("📦 Caja NAP", placeholder="Ej: NAP-001 (opcional)")
 
                 nuevo_precinto = st.text_input("🔒 N° de Precinto (opcional)", placeholder="Número de precinto")
-                nuevo_plan = st.selectbox("📺 Plan", options=PLANES_DISPONIBLES, index=0)
 
                 submit_crear = st.form_submit_button("✅ Crear Nuevo Cliente", use_container_width=True)
 
@@ -56,40 +73,46 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                     if not nuevo_nombre.strip() or not nuevo_direccion.strip():
                         st.error("⚠️ El Nombre y la Dirección son campos obligatorios.")
                     else:
-                        try:
-                            id_cliente = generar_id_unico()
-                            ultima_mod = format_fecha(ahora_argentina())
+                        # Validar si el precinto ya existe
+                        duplicado = verificar_precinto_duplicado(df_clientes, nuevo_precinto)
+                        if duplicado is not None:
+                            st.error(f"❌ Error: El precinto '{nuevo_precinto}' ya está en uso por el cliente: {duplicado['Nº Cliente']} - {duplicado['Nombre']}.")
+                        else:
+                            try:
+                                id_cliente = generar_id_unico()
+                                ultima_mod = format_fecha(ahora_argentina())
 
-                            fila_cliente = [
-                                nro_cliente,
-                                nuevo_sector,
-                                nuevo_nombre.upper().strip(),
-                                nuevo_direccion.upper().strip(),
-                                nuevo_telefono.strip(),
-                                nuevo_precinto.strip(),
-                                id_cliente,
-                                ultima_mod,
-                                "",
-                                "",
-                                "",
-                                nuevo_plan
-                            ]
+                                fila_cliente = [
+                                    nro_cliente,
+                                    nuevo_sector,
+                                    nuevo_nombre.upper().strip(),
+                                    nuevo_direccion.upper().strip(),
+                                    nuevo_telefono.strip(),
+                                    nuevo_precinto.strip(),
+                                    id_cliente,
+                                    ultima_mod,
+                                    "",
+                                    "",
+                                    "",
+                                    nuevo_plan,
+                                    nuevo_caja_nap.strip()
+                                ]
 
-                            success, error = api_manager.safe_sheet_operation(
-                                sheet_clientes.append_row,
-                                fila_cliente
-                            )
+                                success, error = api_manager.safe_sheet_operation(
+                                    sheet_clientes.append_row,
+                                    fila_cliente
+                                )
 
-                            if success:
-                                st.success(f"✅ Cliente {nro_cliente} creado correctamente (ID: {id_cliente}).")
-                                needs_refresh = True
-                            else:
-                                st.error(f"❌ Error al crear el cliente: {error}")
+                                if success:
+                                    st.success(f"✅ Cliente {nro_cliente} creado correctamente (ID: {id_cliente}).")
+                                    needs_refresh = True
+                                else:
+                                    st.error(f"❌ Error al crear el cliente: {error}")
 
-                        except Exception as e:
-                            st.error(f"❌ Error inesperado: {str(e)}")
-                            if DEBUG_MODE:
-                                st.exception(e)
+                            except Exception as e:
+                                st.error(f"❌ Error inesperado: {str(e)}")
+                                if DEBUG_MODE:
+                                    st.exception(e)
 
         else:
             # ==========================================
@@ -98,7 +121,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
             cliente = cliente_data.iloc[0]
             row_idx = cliente.name + 2
 
-            col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+            col_r1, col_r2, col_r3, col_r4, col_r5 = st.columns(5)
             with col_r1:
                 st.markdown(f"**👤 Nombre:** {cliente.get('Nombre', 'N/A')}")
             with col_r2:
@@ -107,17 +130,22 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                 st.markdown(f"**📞 Teléfono:** {cliente.get('Teléfono', 'N/A')}")
             with col_r4:
                 st.markdown(f"**📺 Plan:** {cliente.get('Plan', 'Sin plan')}")
+            with col_r5:
+                val_caja = cliente.get('Caja NAP', 'Sin Caja')
+                if str(val_caja) in ('nan', 'None', ''): val_caja = 'Sin Caja'
+                st.markdown(f"**📦 Caja NAP:** {val_caja}")
 
             st.markdown("---")
 
             # ACORDEON 1: EDITAR DATOS PRINCIPALES
-            with st.expander("✏️ Editar Datos del Cliente (Sector, Nombre, Dirección, Teléfono, Plan)"):
+            with st.expander("✏️ Editar Datos del Cliente (Sector, Nombre, Dirección, Teléfono, Plan, Caja)"):
                 with st.form(f"form_editar_datos_{row_idx}"):
                     edit_col1, edit_col2 = st.columns(2)
 
                     with edit_col1:
                         edit_nombre = st.text_input("👤 Nombre", value=cliente.get("Nombre", ""), key=f"cli_nom_{row_idx}")
                         edit_direccion = st.text_input("📍 Dirección", value=cliente.get("Dirección", ""), key=f"cli_dir_{row_idx}")
+                        edit_caja_nap = st.text_input("📦 Caja NAP", value=str(cliente.get("Caja NAP", "")).replace("nan",""), key=f"cli_caja_{row_idx}")
 
                     with edit_col2:
                         edit_telefono = st.text_input("📞 Teléfono", value=str(cliente.get("Teléfono", "")), key=f"cli_tel_{row_idx}")
@@ -149,6 +177,8 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             updates.append({"range": f"E{row_idx}", "values": [[edit_telefono.strip()]]})
                         if str(cliente.get("Plan", "")).strip() != edit_plan:
                             updates.append({"range": f"L{row_idx}", "values": [[edit_plan]]})
+                        if str(cliente.get("Caja NAP", "")).strip() != edit_caja_nap.strip():
+                            updates.append({"range": f"M{row_idx}", "values": [[edit_caja_nap.strip()]]})
 
                         if updates:
                             fecha_mod = format_fecha(ahora_argentina())
@@ -177,13 +207,17 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             if not new_precinto.strip():
                                 st.error("❌ El precinto no puede estar vacío.")
                             elif new_precinto.strip() != precinto:
-                                updates = [{"range": f"F{row_idx}", "values": [[new_precinto.strip()]]}]
-                                success, error = dm_batch_update_sheet(sheet_clientes, updates)
-                                if success:
-                                    st.success("✅ Precinto actualizado correctamente.")
-                                    needs_refresh = True
+                                duplicado = verificar_precinto_duplicado(df_clientes, new_precinto.strip(), nro_cliente)
+                                if duplicado is not None:
+                                    st.error(f"❌ Error: El precinto '{new_precinto}' ya lo tiene el cliente: {duplicado['Nº Cliente']} - {duplicado['Nombre']}.")
                                 else:
-                                    st.error(f"❌ Error al guardar: {error}")
+                                    updates = [{"range": f"F{row_idx}", "values": [[new_precinto.strip()]]}]
+                                    success, error = dm_batch_update_sheet(sheet_clientes, updates)
+                                    if success:
+                                        st.success("✅ Precinto actualizado correctamente.")
+                                        needs_refresh = True
+                                    else:
+                                        st.error(f"❌ Error al guardar: {error}")
                             else:
                                 st.info("ℹ️ El precinto es el mismo, sin cambios.")
                 else:
@@ -196,13 +230,17 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             if not new_precinto.strip():
                                 st.error("❌ Debés ingresar un número de precinto.")
                             else:
-                                updates = [{"range": f"F{row_idx}", "values": [[new_precinto.strip()]]}]
-                                success, error = dm_batch_update_sheet(sheet_clientes, updates)
-                                if success:
-                                    st.success("✅ Precinto guardado correctamente.")
-                                    needs_refresh = True
+                                duplicado = verificar_precinto_duplicado(df_clientes, new_precinto.strip())
+                                if duplicado is not None:
+                                    st.error(f"❌ Error: El precinto '{new_precinto}' ya lo tiene el cliente: {duplicado['Nº Cliente']} - {duplicado['Nombre']}.")
                                 else:
-                                    st.error(f"❌ Error al guardar en la hoja: {error}")
+                                    updates = [{"range": f"F{row_idx}", "values": [[new_precinto.strip()]]}]
+                                    success, error = dm_batch_update_sheet(sheet_clientes, updates)
+                                    if success:
+                                        st.success("✅ Precinto guardado correctamente.")
+                                        needs_refresh = True
+                                    else:
+                                        st.error(f"❌ Error al guardar en la hoja: {error}")
 
             # ACORDEON 3: GEOREFERENCIA
             with st.expander("🗺️ Georreferencia"):
@@ -277,6 +315,35 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 except ValueError:
                                     st.error("❌ Las coordenadas deben ser valores numéricos.")
 
+            # ACORDEON 4: HISTORIAL DE RECLAMOS
+            with st.expander("📜 Historial de Reclamos"):
+                if df_reclamos is not None and not df_reclamos.empty:
+                    df_reclamos["Nº Cliente"] = df_reclamos["Nº Cliente"].astype(str).str.strip()
+                    reclamos_cliente = df_reclamos[df_reclamos["Nº Cliente"] == nro_cliente]
+                    
+                    if reclamos_cliente.empty:
+                        st.info("ℹ️ No hay reclamos registrados para este cliente.")
+                    else:
+                        # Tomamos los últimos 5 reclamos y los invertimos para mostrar el más reciente arriba
+                        ultimos_reclamos = reclamos_cliente.tail(5).iloc[::-1]
+                        
+                        for _, rec in ultimos_reclamos.iterrows():
+                            fecha = str(rec.get("Fecha y hora", "S/F")).strip()
+                            if fecha in ("nan", "None", ""): fecha = "S/F"
+                                
+                            tipo = str(rec.get("Tipo de reclamo", "S/T")).strip()
+                            if tipo in ("nan", "None", ""): tipo = "S/T"
+                                
+                            estado = str(rec.get("Estado", "S/E")).strip()
+                            if estado in ("nan", "None", ""): estado = "S/E"
+                                
+                            tecnico = str(rec.get("Técnico", "S/T")).strip()
+                            if tecnico in ("nan", "None", ""): tecnico = "S/T"
+                            
+                            st.markdown(f"- **{fecha}** | {tipo} | Estado: *{estado}* | Técnico: *{tecnico}*")
+                else:
+                    st.warning("⚠️ Base de reclamos no disponible.")
+
     # ==========================================
     # SECCION 2: EDITOR DE CAJAS NAP
     # ==========================================
@@ -302,7 +369,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                 # ==========================================
                 # LA CAJA NO EXISTE - CREACION
                 # ==========================================
-                st.info("ℹ️ Esta caja NAP no existe en la base. Completá los datos para crearla.")
+                st.info("ℹ Esta caja NAP no existe en la base. Completá los datos para crearla.")
 
                 with st.form("form_crear_caja"):
                     col_c1, col_c2 = st.columns(2)
@@ -343,6 +410,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 float(nuevo_lat_caja.strip().replace(',', '.'))
                                 float(nuevo_lon_caja.strip().replace(',', '.'))
 
+                                # Las columnas adicionales (I a X) para precintos quedarán en blanco por ahora
                                 fila_caja = [
                                     nro_caja,
                                     nuevo_sector_caja,
@@ -360,7 +428,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 )
 
                                 if success:
-                                    st.success(f"✅ Caja NAP `{nro_caja}` creada correctamente.")
+                                    st.success(f"✅ Caja NAP `{nro_caja}` creada correctamente. Podés buscarla ahora para cargar los puertos.")
                                     needs_refresh = True
                                 else:
                                     st.error(f"❌ Error al crear la caja NAP: {error}")
@@ -430,7 +498,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                         with edit_ccol2:
                             edit_cliente_ref = st.text_input(
                                 "👤 Cliente de Referencia",
-                                value=str(caja.get("Cliente de Referencia", "")),
+                                value=str(caja.get("Cliente de Referencia", "")).replace("nan", ""),
                                 key=f"caja_ref_{caja_row_idx}"
                             )
                             splitter_actual = str(caja.get("Splitter", "")).strip()
@@ -476,7 +544,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                 st.info("ℹ️ No se detectaron cambios en los datos de la caja NAP.")
 
                 # ACORDEON CAJA 2: GEOREFERENCIA
-                with st.expander("🗺️ Georreferencia de Caja NAP"):
+                with st.expander("🗺️️ Georreferencia de Caja NAP"):
                     lat_caja = str(caja.get("Latitud", "")).strip()
                     lon_caja = str(caja.get("Longitud", "")).strip()
 
@@ -549,5 +617,100 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                             st.error(f"❌ Error al guardar en la hoja: {error}")
                                     except ValueError:
                                         st.error("❌ Las coordenadas deben ser valores numéricos (ej: -26.123456).")
+
+                # ACORDEON CAJA 3: GESTION DE PUERTOS (PRECINTOS)
+                with st.expander("🔌 Gestión de Puertos (Precintos)"):
+                    splitter_actual = str(caja.get('Splitter', '1/4')).strip()
+                    num_puertos = 4
+                    if splitter_actual == "1/8":
+                        num_puertos = 8
+                    elif splitter_actual == "1/16":
+                        num_puertos = 16
+
+                    # Mapeo de columnas de precintos en hoja Cajas: de la I(9) a la X(24)
+                    letras_columnas = ["I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X"]
+
+                    with st.form(f"form_puertos_caja_{caja_row_idx}"):
+                        st.markdown(f"**Splitter {splitter_actual}** — Se han habilitado **{num_puertos}** puertos.")
+                        
+                        inputs_puertos = []
+                        
+                        # Generar dinámicamente los campos según el splitter
+                        for i in range(num_puertos):
+                            col_precinto = f"Precinto {i+1}"
+                            val_actual_puerto = str(caja.get(col_precinto, "")).strip()
+                            if val_actual_puerto in ("nan", "None"): val_actual_puerto = ""
+
+                            # Buscar a quién pertenece este precinto actualmente
+                            info_cliente = ""
+                            if val_actual_puerto:
+                                asociado = verificar_precinto_duplicado(df_clientes, val_actual_puerto)
+                                if asociado is not None:
+                                    info_cliente = f" (🟢 {asociado['Nº Cliente']} - {asociado['Nombre']})"
+                                else:
+                                    info_cliente = " (🔴 Precinto libre o sin cliente)"
+                            
+                            nuevo_val_puerto = st.text_input(
+                                f"Puerto {i+1}{info_cliente}", 
+                                value=val_actual_puerto, 
+                                key=f"puerto_{caja_row_idx}_{i}"
+                            )
+                            inputs_puertos.append(nuevo_val_puerto)
+
+                        submit_puertos = st.form_submit_button("💾 Guardar Puertos y Asignar Caja a Clientes", use_container_width=True)
+
+                        if submit_puertos:
+                            updates_caja = []
+                            updates_clientes = []
+
+                            # Revisamos los puertos activos
+                            for i in range(num_puertos):
+                                val_actual = str(caja.get(f"Precinto {i+1}", "")).strip()
+                                if val_actual in ("nan", "None"): val_actual = ""
+                                nuevo_val = inputs_puertos[i].strip()
+
+                                # Si se modificó el precinto en la caja, lo agregamos al lote
+                                if val_actual != nuevo_val:
+                                    letra = letras_columnas[i]
+                                    updates_caja.append({"range": f"{letra}{caja_row_idx}", "values": [[nuevo_val]]})
+
+                                # Si hay un precinto ingresado, le asignamos esta caja al cliente (Columna M en Clientes)
+                                if nuevo_val:
+                                    cli_asociado = verificar_precinto_duplicado(df_clientes, nuevo_val)
+                                    if cli_asociado is not None:
+                                        cli_idx = cli_asociado.name + 2
+                                        caja_actual_cli = str(cli_asociado.get("Caja NAP", "")).strip()
+                                        if caja_actual_cli != nro_caja:
+                                            # Actualizar columna M (Caja NAP) en la hoja de clientes
+                                            updates_clientes.append({"range": f"M{cli_idx}", "values": [[nro_caja]]})
+
+                            # Limpiamos los puertos sobrantes si se cambió a un splitter más pequeño
+                            for i in range(num_puertos, 16):
+                                val_actual = str(caja.get(f"Precinto {i+1}", "")).strip()
+                                if val_actual and val_actual not in ("nan", "None"):
+                                    letra = letras_columnas[i]
+                                    updates_caja.append({"range": f"{letra}{caja_row_idx}", "values": [[""]]})
+
+                            exito = True
+                            
+                            if updates_caja:
+                                success_c, error_c = dm_batch_update_sheet(sheet_cajas, updates_caja)
+                                if not success_c:
+                                    st.error(f"❌ Error al guardar puertos de caja: {error_c}")
+                                    exito = False
+                            
+                            if updates_clientes:
+                                success_cl, error_cl = dm_batch_update_sheet(sheet_clientes, updates_clientes)
+                                if not success_cl:
+                                    st.error(f"❌ Error al actualizar cajas en clientes: {error_cl}")
+                                    exito = False
+                                else:
+                                    st.success(f"✅ Se asignó automáticamente la Caja {nro_caja} a {len(updates_clientes)} cliente(s).")
+
+                            if exito and (updates_caja or updates_clientes):
+                                st.success("✅ Actualización completada correctamente.")
+                                needs_refresh = True
+                            elif not updates_caja and not updates_clientes:
+                                st.info("ℹ️ No se detectaron cambios en los puertos.")
 
     return {"needs_refresh": needs_refresh}
