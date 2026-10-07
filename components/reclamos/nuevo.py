@@ -372,7 +372,7 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
 
             id_reclamo = generar_id_unico()
 
-            # Construcción de la fila de datos para la hoja de Reclamos (Exactamente 16 columnas)
+            # Construcción de la fila de datos para la hoja de Reclamos respetando la estructura real (hasta col S)
             fila_reclamo = [
                 format_fecha(fecha_hora),       # A: Fecha y hora
                 estado['nro_cliente'],          # B: Nº Cliente
@@ -388,8 +388,11 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
                 atendido_por.upper().strip(),   # L: Atendido por
                 "",                             # M: Fecha_formateada (se llena al cerrar)
                 "",                             # N: Anotaciones (vacío al crear)
-                id_reclamo,                     # O: ID Reclamo
-                plan                            # P: Plan
+                "",                             # O: (Columna libre)
+                id_reclamo,                     # P: ID Reclamo
+                "",                             # Q: (Columna libre)
+                "",                             # R: (Columna libre)
+                plan                            # S: Plan
             ]
 
             # --- Interacción con Google Sheets ---
