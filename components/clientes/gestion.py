@@ -5,7 +5,7 @@ from utils.api_manager import api_manager
 from utils.data_manager import batch_update_sheet as dm_batch_update_sheet
 from utils.date_utils import ahora_argentina, format_fecha
 from components.reclamos.nuevo import generar_id_unico
-from config.settings import SECTORES_DISPONIBLES, PLANES_DISPONIBLES, SPLITTERS_DISPONIBLES, DEBUG_MODE
+from config.settings import SECTORES_DISPONIBLES, PLANES_DISPONIBLES, SPLITTERS_DISPONIBLES, MARCAS_EQUIPO, DEBUG_MODE
 
 def verificar_precinto_duplicado(df_clientes, precinto, cliente_id_ignorar=None):
     """
@@ -529,8 +529,6 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
         if nro_caja:
             caja_data = df_cajas_norm[df_cajas_norm["N De Caja"] == nro_caja]
 
-            default_cliente_ref = nro_cliente if nro_cliente else ""
-
             if caja_data.empty:
                 # ==========================================
                 # LA CAJA NO EXISTE - CREACION
@@ -553,11 +551,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                     col_c3, col_c4 = st.columns(2)
                     with col_c3:
                         nuevo_obs_caja = st.text_input("📝 Observación", placeholder="Observaciones (opcional)")
-                        nuevo_cliente_ref = st.text_input(
-                            "👤 Cliente de Referencia",
-                            value=default_cliente_ref,
-                            placeholder="Nº de cliente de referencia"
-                        )
+                        nueva_marca = st.selectbox("🏷️ Marca Equipo", options=MARCAS_EQUIPO, index=0, key="caja_marca_new")
                     with col_c4:
                         nuevo_splitter = st.selectbox(
                             "🔀 Splitter*",
@@ -583,7 +577,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                                     nuevo_lat_caja.strip(),
                                     nuevo_lon_caja.strip(),
                                     nuevo_obs_caja.strip(),
-                                    nuevo_cliente_ref.strip(),
+                                    nueva_marca.strip(),
                                     nuevo_splitter.strip()
                                 ]
 
@@ -618,7 +612,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                 with col_cr2:
                     st.markdown(f"**🏘️ Barrio:** {caja.get('Barrio', 'N/A')}")
                 with col_cr3:
-                    st.markdown(f"**👤 Cliente Ref:** {caja.get('Cliente de Referencia', 'N/A')}")
+                    st.markdown(f"**🏷️ Marca Equipo:** {caja.get('Marca Equipo', 'N/A')}")
                 with col_cr4:
                     splitter_val = caja.get('Splitter', '')
                     splitter_display = splitter_val if splitter_val and str(splitter_val).strip() not in ('', 'nan', 'None') else 'Sin asignar'
@@ -640,7 +634,7 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                 st.markdown("---")
 
                 # ACORDEON CAJA 1: EDITAR DATOS PRINCIPALES
-                with st.expander("✏️ Editar Datos de la Caja NAP (Sector, Barrio, Observación, Cliente Ref, Splitter)"):
+                with st.expander("✏️ Editar Datos de la Caja NAP (Sector, Barrio, Observación, Marca, Splitter)"):
                     with st.form(f"form_editar_caja_{caja_row_idx}"):
                         edit_ccol1, edit_ccol2 = st.columns(2)
 
@@ -661,11 +655,15 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             )
 
                         with edit_ccol2:
-                            edit_cliente_ref = st.text_input(
-                                "👤 Cliente de Referencia",
-                                value=str(caja.get("Cliente de Referencia", "")).replace("nan", ""),
-                                key=f"caja_ref_{caja_row_idx}"
+                            marca_actual = str(caja.get("Marca Equipo", "Huawei")).strip()
+                            try:
+                                marca_idx = MARCAS_EQUIPO.index(marca_actual) if marca_actual in MARCAS_EQUIPO else 0
+                            except ValueError:
+                                marca_idx = 0
+                            edit_marca = st.selectbox(
+                                "🏷️ Marca Equipo", options=MARCAS_EQUIPO, index=marca_idx, key=f"caja_marca_{caja_row_idx}"
                             )
+
                             splitter_actual = str(caja.get("Splitter", "")).strip()
                             try:
                                 splitter_idx = SPLITTERS_DISPONIBLES.index(splitter_actual) if splitter_actual in SPLITTERS_DISPONIBLES else 1
@@ -692,8 +690,8 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
                             if str(caja.get("Observacion", "")).strip() != edit_obs_caja.strip():
                                 updates.append({"range": f"F{caja_row_idx}", "values": [[edit_obs_caja.strip()]]})
 
-                            if str(caja.get("Cliente de Referencia", "")).strip() != edit_cliente_ref.strip():
-                                updates.append({"range": f"G{caja_row_idx}", "values": [[edit_cliente_ref.strip()]]})
+                            if str(caja.get("Marca Equipo", "")).strip() != edit_marca.strip():
+                                updates.append({"range": f"G{caja_row_idx}", "values": [[edit_marca.strip()]]})
 
                             if str(caja.get("Splitter", "")).strip() != edit_splitter.strip():
                                 updates.append({"range": f"H{caja_row_idx}", "values": [[edit_splitter.strip()]]})

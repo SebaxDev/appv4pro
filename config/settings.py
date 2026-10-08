@@ -41,9 +41,11 @@ COLUMNAS_NOTIFICACIONES = [
 # Agregá las opciones de Splitter disponibles:
 SPLITTERS_DISPONIBLES = ["1/4", "1/8", "1/16"]
 
+MARCAS_EQUIPO = ["Huawei", "VSol"]
+
 COLUMNAS_CAJAS = [
     "N De Caja", "Sector", "Barrio", "Latitud",
-    "Longitud", "Observacion", "Cliente de Referencia", "Splitter",
+    "Longitud", "Observacion", "Marca Equipo", "Splitter",
     "Precinto 1", "Precinto 2", "Precinto 3", "Precinto 4",
     "Precinto 5", "Precinto 6", "Precinto 7", "Precinto 8",
     "Precinto 9", "Precinto 10", "Precinto 11", "Precinto 12",
