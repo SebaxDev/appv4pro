@@ -1,16 +1,22 @@
 """
 Módulo para gestión segura de datos con Google Sheets
-Versión 3.2 - Con manejo robusto de errores y compatibilidad con API
+Versión 4.0 - Con manejo robusto de errores y reintentos automáticos (Tenacity)
 """
 import streamlit as st
 import time
 from typing import List, Dict, Union, Optional
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 class ApiManager:
     def __init__(self):
         self.total_calls = 0
         self.error_count = 0
         self.last_call = 0
+
+    @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=1, min=2, max=10))
+    def _execute_with_retry(self, func, *args, **kwargs):
+        """Ejecuta la función de gspread con reintentos automáticos si la API falla"""
+        return func(*args, **kwargs)
 
     def safe_sheet_operation(self, func, *args, is_batch=False, **kwargs):
         """
@@ -28,8 +34,11 @@ class ApiManager:
         try:
             self.total_calls += 1
             self.last_call = time.time()
-            result = func(*args, **kwargs)
+            
+            # Llamamos a la función a través de nuestro blindaje de reintentos
+            result = self._execute_with_retry(func, *args, **kwargs)
             return result, None
+            
         except Exception as e:
             self.error_count += 1
             return None, str(e)
@@ -43,6 +52,11 @@ class ApiManager:
             "error_count": self.error_count,
             "last_call": self.last_call
         }
+
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=1, min=2, max=10))
+def _execute_batch_update_with_retry(worksheet, updates):
+    """Ejecuta un batch_update con reintentos automáticos"""
+    worksheet.batch_update(updates)
 
 def batch_update_sheet(worksheet, updates: List[Dict[str, Union[str, List[List[str]]]]]) -> bool:
     """
@@ -60,7 +74,8 @@ def batch_update_sheet(worksheet, updates: List[Dict[str, Union[str, List[List[s
         return True
         
     try:
-        worksheet.batch_update(updates)
+        # Llamamos al batch update a través de nuestro blindaje
+        _execute_batch_update_with_retry(worksheet, updates)
         return True
     except Exception as e:
         st.error(f"Error en batch_update: {str(e)}")

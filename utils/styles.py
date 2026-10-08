@@ -227,14 +227,71 @@ def get_crm_styles(dark_mode=False):
     .badge-warning {{ background: rgba(245, 158, 11, 0.1); color: var(--warning); }}
     .badge-danger {{ background: rgba(239, 68, 68, 0.1); color: var(--danger); }}
 
+    /* --- 10. OCULTAR UI DE STREAMLIT --- */
+    #MainMenu {{visibility: hidden;}}
+    header {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    
+    /* Eliminar el espacio vacío que deja el header al ocultarse */
+    .stApp > header {{
+        background-color: transparent;
+    }}
+
+    /* --- 11. PESTAÑAS (TABS) MODERNAS --- */
+    div[data-baseweb="tab-list"] {{
+        gap: 0.5rem;
+        background-color: var(--bg-surface);
+        padding: 0.5rem;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+    }}
+    
+    div[data-baseweb="tab"] {{
+        background-color: transparent !important;
+        border: none !important;
+        border-radius: calc(var(--radius) - 2px) !important;
+        padding: 0.5rem 1rem !important;
+        color: var(--text-secondary) !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease;
+    }}
+    
+    div[data-baseweb="tab"]:hover {{
+        background-color: var(--bg-input) !important;
+        color: var(--text-primary) !important;
+    }}
+    
+    div[aria-selected="true"] {{
+        background-color: var(--primary-light) !important;
+        color: var(--primary) !important;
+    }}
+
+    /* --- 12. ACORDEONES (EXPANDERS) --- */
+    div[data-testid="stExpander"] {{
+        background-color: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+    }}
+    
+    div[data-testid="stExpander"] summary {{
+        background-color: var(--bg-surface);
+        padding: 1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+    }}
+    
+    div[data-testid="stExpander"] summary:hover {{
+        color: var(--primary);
+    }}
+
     </style>
     """
 
-def render_metric_card(title, value, subtitle="", color="blue"):
-    """
-    Función auxiliar para crear una tarjeta de métrica HTML bonita y ligera.
-    Úsala dentro de st.markdown con unsafe_allow_html=True.
-    """
+def render_metric_card(title, value, subtitle="", color="blue", icon="📊"):
+    """Tarjeta de métrica mejorada con icono."""
     color_map = {
         "blue": "var(--primary)",
         "green": "var(--success)",
@@ -244,11 +301,45 @@ def render_metric_card(title, value, subtitle="", color="blue"):
     c = color_map.get(color, "var(--primary)")
     
     return f"""
-    <div class="crm-card" style="padding: 1.25rem; text-align: center;">
-        <div style="color: var(--text-secondary); font-size: 0.875rem; font-weight: 500; margin-bottom: 0.5rem;">{title}</div>
-        <div style="color: {c}; font-size: 2rem; font-weight: 700; line-height: 1;">{value}</div>
-        {f'<div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">{subtitle}</div>' if subtitle else ''}
+    <div class="crm-card" style="padding: 1.25rem; display: flex; align-items: center; gap: 1rem;">
+        <div style="background-color: {c}; opacity: 0.9; color: white; min-width: 3.5rem; height: 3.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+            {icon}
+        </div>
+        <div>
+            <div style="color: var(--text-secondary); font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem;">{title}</div>
+            <div style="color: var(--text-primary); font-size: 1.75rem; font-weight: 700; line-height: 1;">{value}</div>
+            {f'<div style="color: {c}; font-size: 0.75rem; margin-top: 0.35rem; font-weight: 600;">{subtitle}</div>' if subtitle else ''}
+        </div>
     </div>
+    """
+
+def status_dot(status="active", text=""):
+    """
+    Genera un indicador de estado con un punto que palpita.
+    status: 'active' (verde), 'warning' (naranja), 'danger' (rojo), 'offline' (gris)
+    """
+    color_map = {
+        "active": "var(--success)",
+        "warning": "var(--warning)",
+        "danger": "var(--danger)",
+        "offline": "var(--text-secondary)"
+    }
+    color = color_map.get(status, "var(--success)")
+    
+    return f"""
+    <div style="display: flex; align-items: center; gap: 0.6rem;">
+        <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 12px; height: 12px;">
+            <div style="position: absolute; width: 100%; height: 100%; background-color: {color}; border-radius: 50%; opacity: 0.6; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;"></div>
+            <div style="position: relative; width: 8px; height: 8px; background-color: {color}; border-radius: 50%;"></div>
+        </div>
+        <span style="color: var(--text-primary); font-size: 0.9rem; font-weight: 600;">{text}</span>
+    </div>
+    <style>
+    @keyframes pulse {{
+        0%, 100% {{ opacity: 1; transform: scale(1); }}
+        50% {{ opacity: .3; transform: scale(1.5); }}
+    }}
+    </style>
     """
 
 # --- FUNCIONES RESTAURADAS PARA COMPATIBILIDAD ---
