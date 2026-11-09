@@ -129,7 +129,7 @@ def _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df
                         if not tecnicos_sel:
                             st.error("❌ Seleccioná al menos un técnico.")
                         else:
-                            tecnicos_str = ", ".join(tecnicos_sel)
+                            tecnicos_str = ", ".join(tecnicos_sel).upper()
                             
                             # Obtener índices de columnas
                             col_estado = df_reclamos.columns.get_loc('Estado') + 1
