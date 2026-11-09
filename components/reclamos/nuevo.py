@@ -1,10 +1,13 @@
 # components/reclamos/nuevo.py
 import streamlit as st
 import pandas as pd
+import gspread
+import time
 from datetime import datetime
 from utils.date_utils import ahora_argentina, format_fecha
 from utils.api_manager import api_manager
 from utils.data_manager import batch_update_sheet
+
 from config.settings import (
     SECTORES_DISPONIBLES,
     TIPOS_RECLAMO,
@@ -12,7 +15,169 @@ from config.settings import (
     DEBUG_MODE
 )
 
-# --- FUNCIONES HELPER NUEVAS ---
+# Intentamos importar TECNICOS_DISPONIBLES, y si no existe en settings, usamos una lista segura
+try:
+    from config.settings import TECNICOS_DISPONIBLES
+except ImportError:
+    TECNICOS_DISPONIBLES = [
+        "BLUME", "CONEJO", "GABRIEL", "JUAN", "JUNIOR", "MAXI", "MARKI",
+        "PEDRITO", "RAMON", "RENE", "ROQUE", "VIKI", "OFICINA", "BASE"
+    ]
+
+# =========================================================
+# --- FUNCIONES HELPER PARA ASIGNACIÓN Y WHATSAPP ---
+# =========================================================
+def generar_mensaje_asignacion(row, tecnicos_asignados):
+    """Genera el texto formateado para enviar por WhatsApp al técnico."""
+    cliente = str(row.get('Nombre', 'Sin Nombre'))
+    nro_cliente = str(row.get('Nº Cliente', ''))
+    direccion = str(row.get('Dirección', 'Sin dirección'))
+    telefono = str(row.get('Teléfono', 'Sin teléfono'))
+    plan = str(row.get('Plan_Limpio', '')) 
+    tipo_reclamo = str(row.get('Tipo de reclamo', ''))
+    detalles = str(row.get('Detalles', ''))
+    sector = str(row.get('Sector', ''))
+
+    if detalles == '*' or detalles == 'nan':
+        detalles = ""
+
+    precinto = ''
+    if pd.notna(row.get('precinto_cliente')) and str(row.get('precinto_cliente')) not in ['nan', '*', '']:
+        precinto = str(row.get('precinto_cliente'))
+        
+    caja_nap = str(row.get('caja_nap', '')).replace('nan', '').strip()
+
+    sep = "------------------------------------------------"
+
+    msg = f"🔧 *NUEVA ASIGNACIÓN DE TRABAJO* 🔧\n"
+    msg += sep + "\n"
+    msg += f"👷 *TÉCNICO(S):* {tecnicos_asignados}\n"
+    msg += f"👤 *CLIENTE:* {cliente} (Nº {nro_cliente})\n"
+    if sector:
+        msg += f"📍 *SECTOR:* {sector}\n"
+    msg += f"🏠 *DIRECCIÓN:* {direccion}\n"
+    
+    if telefono and telefono != 'Sin teléfono':
+        msg += f"📞 *TEL:* {telefono}\n"
+        
+    if plan and plan.lower() not in ['nan', 'none', '', '*', ' ']:
+        msg += f"📄 *PLAN:* {plan}\n"
+        
+    if precinto:
+        msg += f"🔒 *PRECINTO:* {precinto}\n"
+    else:
+        msg += f"🔒 *PRECINTO:* No cuenta con número de precinto\n"
+        
+    if caja_nap and caja_nap.lower() != 'none':
+        msg += f"📦 *CAJA NAP:* {caja_nap}\n"
+        
+    msg += sep + "\n"
+    msg += f"⚙️ *RECLAMO:* {tipo_reclamo}\n"
+    if detalles:
+        msg += f"📝 *DETALLE:* {detalles}\n"
+
+    tiene_ubicacion = pd.notna(row.get('lat')) and pd.notna(row.get('lon'))
+    if tiene_ubicacion and str(row.get('lat')).strip() and str(row.get('lon')).strip():
+        maps_link = f"https://www.google.com/maps/dir/?api=1&destination={row['lat']},{row['lon']}"
+        msg += sep + "\n"
+        msg += f"🗺️ *UBICACIÓN:* {maps_link}\n"
+        msg += "(Click en el link para abrir Google Maps)"
+    else:
+        msg += sep + "\n"
+        msg += "⚠️ *Sin georeferenciación exacta*"
+
+    return msg
+
+def _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos):
+    """Dibuja los paneles nativos para cada reclamo activo y gestiona su asignación"""
+    for idx, reclamo in reclamos_activos.iterrows():
+        sheet_row_num = idx + 2
+        estado_reclamo = str(reclamo.get('Estado', '')).strip()
+        estado_lower = estado_reclamo.lower()
+        tecnico_asignado = str(reclamo.get('Técnico', '')).strip()
+        nro_cliente_str = str(reclamo.get("Nº Cliente", ""))
+        
+        with st.expander(f"🔍 Reclamo activo - {format_fecha(reclamo['Fecha y hora'], '%d/%m/%Y %H:%M')}", expanded=True):
+            
+            # --- 1. ALERTAS NATIVAS DE COLOR SEGÚN ESTADO ---
+            if estado_lower == "pendiente":
+                st.warning("⚠️ **Estado: Pendiente** - Esperando asignación de técnicos")
+            elif estado_lower == "en curso":
+                st.info(f"🔄 **Estado: En curso** | 👷 **Técnicos:** {tecnico_asignado}")
+            elif estado_lower == "verificado":
+                st.success("✅ **Estado: Verificado** - Trabajo completado, pendiente de cierre")
+            else:
+                st.error(f"⚙️ **Estado:** {estado_reclamo}")
+
+            # --- 2. DETALLES DEL RECLAMO ---
+            st.markdown(f"**👤 Cliente:** {reclamo.get('Nombre', 'N/A')}")
+            st.markdown(f"**📌 Tipo:** {reclamo.get('Tipo de reclamo', 'N/A')}")
+            st.markdown(f"**📝 Detalles:** {reclamo.get('Detalles', 'N/A')}")
+            
+            # --- 3. FORMULARIO DE ASIGNACIÓN (Solo Pendiente o En curso) ---
+            if estado_lower in ["pendiente", "en curso"]:
+                st.divider()
+                with st.form(f"form_asignar_{nro_cliente_str}_{sheet_row_num}"):
+                    tecnicos_sel = st.multiselect(
+                        "👷 Asignar o Reasignar Técnico(s)", 
+                        options=TECNICOS_DISPONIBLES,
+                        key=f"ms_tec_{nro_cliente_str}_{sheet_row_num}"
+                    )
+                    submit_asignar = st.form_submit_button("🚀 Asignar → En Curso", use_container_width=True)
+                    
+                    if submit_asignar:
+                        if not tecnicos_sel:
+                            st.error("❌ Seleccioná al menos un técnico.")
+                        else:
+                            tecnicos_str = ", ".join(tecnicos_sel)
+                            
+                            # Obtener índices de columnas
+                            col_estado = df_reclamos.columns.get_loc('Estado') + 1
+                            col_tecnico = df_reclamos.columns.get_loc('Técnico') + 1
+                            
+                            updates = [
+                                {"range": gspread.utils.rowcol_to_a1(sheet_row_num, col_estado), "values": [["En curso"]]},
+                                {"range": gspread.utils.rowcol_to_a1(sheet_row_num, col_tecnico), "values": [[tecnicos_str]]}
+                            ]
+                            
+                            with st.spinner("Asignando..."):
+                                success, error = api_manager.safe_sheet_operation(
+                                    batch_update_sheet, sheet_reclamos, updates, is_batch=True
+                                )
+                                
+                                if success:
+                                    # Construir diccionario con datos completos para el mensaje
+                                    cliente_match = df_clientes_norm[df_clientes_norm["Nº Cliente"] == nro_cliente_str]
+                                    cli_data = cliente_match.iloc[0].to_dict() if not cliente_match.empty else {}
+                                    
+                                    row_dict = {
+                                        'Nombre': reclamo.get('Nombre', cli_data.get('Nombre', '')),
+                                        'Nº Cliente': nro_cliente_str,
+                                        'Dirección': reclamo.get('Dirección', cli_data.get('Dirección', '')),
+                                        'Teléfono': reclamo.get('Teléfono', cli_data.get('Teléfono', '')),
+                                        'Plan_Limpio': cli_data.get('Plan', ''),
+                                        'Tipo de reclamo': reclamo.get('Tipo de reclamo', ''),
+                                        'Detalles': reclamo.get('Detalles', ''),
+                                        'Sector': reclamo.get('Sector', cli_data.get('Sector', '')),
+                                        'precinto_cliente': reclamo.get('N° de Precinto', cli_data.get('N° de Precinto', '')),
+                                        'caja_nap': cli_data.get('Caja NAP', ''),
+                                        'lat': cli_data.get('Latitud', ''),
+                                        'lon': cli_data.get('Longitud', '')
+                                    }
+                                    
+                                    msg = generar_mensaje_asignacion(row_dict, tecnicos_str)
+                                    st.session_state["mensaje_para_copiar"] = msg
+                                    
+                                    st.cache_data.clear()
+                                    st.success("✅ Asignado correctamente.")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Error al asignar: {error}")
+
+# =========================================================
+# --- FUNCIONES HELPER ORIGINALES (Mejoradas) ---
+# =========================================================
 def _normalizar_datos(df_clientes, df_reclamos, nro_cliente):
     """Normaliza datos solo cuando es necesario"""
     if not nro_cliente:
@@ -67,19 +232,14 @@ def _validar_campos_obligatorios(nombre, direccion, sector, tipo_reclamo, atendi
 
     if not nombre.strip():
         errores.append("Nombre")
-
     if not direccion.strip():
         errores.append("Dirección")
-
     if not str(sector).strip():
         errores.append("Sector")
-
     if not tipo_reclamo.strip() or tipo_reclamo.startswith("—"):
         errores.append("Tipo de reclamo")
-
     if not atendido_por.strip():
         errores.append("Atendido por")
-
     if not plan.strip() or plan.startswith("—"):
         errores.append("Plan del cliente")
 
@@ -95,16 +255,29 @@ def _reset_formulario():
             'reclamo_guardado': False,
             'cliente_nuevo': False
         }
-    # Limpiar también el input del número de cliente
     if 'nro_cliente_input' in st.session_state:
         st.session_state.nro_cliente_input = ''
 
-# --- FUNCIÓN PRINCIPAL OPTIMIZADA ---
+# =========================================================
+# --- FUNCIÓN PRINCIPAL ---
+# =========================================================
 def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_clientes, current_user=None):
-    """
-    Muestra la sección para cargar nuevos reclamos
-    """
+    """Muestra la sección para cargar nuevos reclamos"""
     st.subheader("📝 Cargar nuevo reclamo")
+
+    # --- PANEL DE MENSAJE WHATSAPP SI EXISTE ---
+    if "mensaje_para_copiar" in st.session_state and st.session_state["mensaje_para_copiar"]:
+        st.info("📋 Copiá el siguiente texto y enviáselo al técnico:")
+        st.text_area(
+            "Texto del mensaje (Hacé click adentro y presioná Ctrl+C o Copiar)",
+            value=st.session_state["mensaje_para_copiar"],
+            height=250,
+            key="msg_display_asignacion"
+        )
+        if st.button("✅ Ya lo envié (Limpiar mensaje)", use_container_width=True):
+            del st.session_state["mensaje_para_copiar"]
+            st.rerun()
+        st.divider()
 
     # Inicializar estado en session_state
     if 'nuevo_reclamo' not in st.session_state:
@@ -135,7 +308,7 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
         estado['reclamo_guardado'] = False
 
     if estado['nro_cliente']:
-        # Normalizar datos solo cuando sea necesario
+        # Normalizar datos
         df_clientes_norm, df_reclamos_norm = _normalizar_datos(
             df_clientes, df_reclamos, estado['nro_cliente']
         )
@@ -146,7 +319,6 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
         if not match.empty:
             estado['cliente_existente'] = match.iloc[0].to_dict()
             st.success("✅ Cliente reconocido. Carga directa de reclamo habilitada.")
-
         else:
             estado['cliente_nuevo'] = True
             st.info("ℹ️ Este cliente no existe en la base. Completá el formulario para registrarlo junto al reclamo.")
@@ -158,20 +330,8 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
             estado['formulario_bloqueado'] = True
             st.error("⚠️ Este cliente ya tiene un reclamo sin resolver o una desconexión activa.")
 
-            # Mostrar reclamos activos
-            for _, reclamo in reclamos_activos.iterrows():
-                with st.expander(f"🔍 Reclamo activo - {format_fecha(reclamo['Fecha y hora'], '%d/%m/%Y %H:%M')}"):
-                    st.markdown(f"**👤 Cliente:** {reclamo.get('Nombre', 'N/A')}")
-                    st.markdown(f"**📌 Tipo:** {reclamo.get('Tipo de reclamo', 'N/A')}")
-                    st.markdown(f"**📝 Detalles:** {reclamo.get('Detalles', 'N/A')[:200]}...")
-                    st.markdown(f"**⚙️ Estado:** {reclamo.get('Estado', 'Sin estado')}")
-
-                    # Mostrar técnico asignado si existe
-                    tecnico_asignado = reclamo.get('Técnico', '').strip()
-                    if tecnico_asignado:
-                        st.markdown(f"**👷 Técnico asignado:** {tecnico_asignado}")
-                    else:
-                        st.markdown("**👷 Técnico asignado:** Sin asignar")
+            # --- RENDERIZAR PANELES INTERACTIVOS ---
+            _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos)
 
     if estado['reclamo_guardado']:
         st.success("✅ Reclamo registrado correctamente.")
@@ -184,21 +344,9 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
 
         if not reclamos_activos.empty:
             st.warning("⚠️ Este cliente ya tiene un reclamo activo. No es posible crear otro hasta que se resuelva o cambie de número de cliente.")
-
-            # Mostrar reclamos activos
-            for _, reclamo in reclamos_activos.iterrows():
-                with st.expander(f"🔍 Reclamo activo - {format_fecha(reclamo['Fecha y hora'], '%d/%m/%Y %H:%M')}"):
-                    st.markdown(f"**👤 Cliente:** {reclamo.get('Nombre', 'N/A')}")
-                    st.markdown(f"**📌 Tipo:** {reclamo.get('Tipo de reclamo', 'N/A')}")
-                    st.markdown(f"**📝 Detalles:** {reclamo.get('Detalles', 'N/A')[:200]}...")
-                    st.markdown(f"**⚙️ Estado:** {reclamo.get('Estado', 'Sin estado')}")
-
-                    # Mostrar técnico asignado si existe
-                    tecnico_asignado = reclamo.get('Técnico', '').strip()
-                    if tecnico_asignado:
-                        st.markdown(f"**👷 Técnico asignado:** {tecnico_asignado}")
-                    else:
-                        st.markdown("**👷 Técnico asignado:** Sin asignar")
+            
+            # --- RENDERIZAR PANELES INTERACTIVOS ---
+            _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos)
 
         # Botón para crear nuevo reclamo después de guardar exitosamente
         if st.button("📝 Crear nuevo reclamo", type="primary"):
@@ -211,11 +359,12 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
     # Actualizar sessionState
     st.session_state.nuevo_reclamo = estado
 
-# --- FUNCIÓN DE FORMULARIO MEJORADA ---
+# =========================================================
+# --- FORMULARIO Y PROCESAMIENTO ---
+# =========================================================
 def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clientes, current_user):
     """Muestra y procesa el formulario de nuevo reclamo con carga ágil"""
 
-    # Extraer la lista de Cajas NAP dinámicamente desde el session_state
     opciones_cajas = [""]
     df_cajas = st.session_state.get('df_cajas')
     if df_cajas is not None and not df_cajas.empty and "N De Caja" in df_cajas.columns:
@@ -223,21 +372,17 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
         cajas_validas = sorted(list(set(cajas_validas)))
         opciones_cajas.extend(cajas_validas)
 
-    # Mostrar anotaciones previas si el cliente existe y tiene anotaciones
     if estado['cliente_existente']:
         anotaciones_previas = estado['cliente_existente'].get("Anotaciones", "")
         if anotaciones_previas and anotaciones_previas.strip():
             st.markdown("### 📋 Anotación anterior del cliente")
             st.info(f"**{anotaciones_previas}**")
 
-    # ========================================================
-    # VISTA PARA CLIENTE EXISTENTE (Carga Ágil)
-    # ========================================================
+    # --- CLIENTE EXISTENTE ---
     if estado['cliente_existente']:
         cliente_data = estado['cliente_existente']
         
         with st.form("reclamo_formulario", clear_on_submit=False):
-            # 1. BLOQUE PRINCIPAL: RECLAMO
             st.markdown("### 📌 Detalle del Reclamo")
             tipo_reclamo = st.selectbox("Tipo de Reclamo*", TIPOS_RECLAMO)
             detalles = st.text_area("📝 Detalles u observaciones del reclamo", placeholder="Describe el problema...", height=80)
@@ -246,11 +391,9 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
             with col_a:
                 atendido_por = st.text_input("👤 Atendido por*", value=current_user or "")
             with col_b:
-                st.write("") # Espaciador
+                st.write("")
             
             st.markdown("---")
-            
-            # 2. BLOQUE SECUNDARIO: DATOS DEL CLIENTE
             st.markdown("#### 👤 Datos del Cliente (Verificar o modificar si es necesario)")
             col1, col2 = st.columns(2)
 
@@ -258,7 +401,6 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
                 nombre = st.text_input("👤 Nombre del Cliente*", value=cliente_data.get("Nombre", ""))
                 direccion = st.text_input("📍 Dirección*", value=cliente_data.get("Dirección", ""))
                 
-                # Plan
                 plan_default = cliente_data.get("Plan", "")
                 try:
                     plan_index = PLANES_DISPONIBLES.index(plan_default) if plan_default in PLANES_DISPONIBLES else 0
@@ -266,7 +408,6 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
                     plan_index = 0
                 plan = st.selectbox("📺 Plan del Cliente*", PLANES_DISPONIBLES, index=plan_index)
                 
-                # Caja NAP
                 caja_actual_cli = str(cliente_data.get("Caja NAP", "")).strip().replace("nan", "")
                 if caja_actual_cli == "None": caja_actual_cli = ""
                 
@@ -284,7 +425,6 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
             with col2:
                 telefono = st.text_input("📞 Teléfono", value=cliente_data.get("Teléfono", ""))
                 
-                # Sector
                 sector_existente = cliente_data.get("Sector", "1")
                 sector_normalizado, error_sector = _validar_y_normalizar_sector(sector_existente)
                 if error_sector:
@@ -297,12 +437,9 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
 
             enviado = st.form_submit_button("✅ Generar Reclamo", use_container_width=True)
 
-    # ========================================================
-    # VISTA PARA CLIENTE NUEVO (Carga Completa)
-    # ========================================================
+    # --- CLIENTE NUEVO ---
     else:
         with st.form("reclamo_formulario", clear_on_submit=False):
-            # 1. BLOQUE PRINCIPAL: DATOS DEL CLIENTE NUEVO
             st.markdown("### 👤 Datos del Nuevo Cliente")
             col1, col2 = st.columns(2)
             
@@ -318,8 +455,6 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
                 precinto = st.text_input("🔒 N° de Precinto (opcional)", placeholder="Número de precinto")
 
             st.markdown("---")
-            
-            # 2. BLOQUE SECUNDARIO: RECLAMO
             st.markdown("### 📌 Detalle del Reclamo")
             tipo_reclamo = st.selectbox("Tipo de Reclamo*", TIPOS_RECLAMO)
             detalles = st.text_area("📝 Detalles u observaciones del reclamo", placeholder="Describe el problema...", height=80)
@@ -328,13 +463,10 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
             with col3:
                 atendido_por = st.text_input("👤 Atendido por*", placeholder="Nombre de quien atiende", value=current_user or "")
             with col4:
-                st.write("") # Espaciador
+                st.write("") 
 
             enviado = st.form_submit_button("✅ Crear Cliente y Guardar Reclamo", use_container_width=True)
 
-    # ========================================================
-    # PROCESAMIENTO
-    # ========================================================
     if enviado:
         _procesar_envio_formulario(
             estado, nombre, direccion, telefono, sector, 
@@ -342,19 +474,16 @@ def _mostrar_formulario_reclamo(estado, df_clientes, sheet_reclamos, sheet_clien
             df_clientes, sheet_reclamos, sheet_clientes
         )
 
-# --- FUNCIÓN DE PROCESAMIENTO OPTIMIZADA ---
 def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo_reclamo, 
                               detalles, precinto, atendido_por, plan, caja_nap, df_clientes, sheet_reclamos, sheet_clientes):
     """Procesa el envío del formulario de manera optimizada"""
 
-    # Validar campos obligatorios
     campos_vacios = _validar_campos_obligatorios(nombre, direccion, sector, tipo_reclamo, atendido_por, plan)
 
     if campos_vacios:
         st.error(f"⚠️ Campos obligatorios vacíos: {', '.join(campos_vacios)}")
         return
 
-    # Validar y normalizar sector
     sector_normalizado, error_sector = _validar_y_normalizar_sector(sector)
     if error_sector:
         st.error(error_sector)
@@ -362,9 +491,7 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
 
     with st.spinner("Guardando reclamo..."):
         try:
-            # --- Preparación de Datos del Reclamo ---
             fecha_hora = ahora_argentina()
-            # Condición especial para el tipo de reclamo "Desconexion a Pedido"
             if tipo_reclamo.strip().lower() == "desconexion a pedido":
                 estado_reclamo = "Desconexión"
             else:
@@ -372,30 +499,28 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
 
             id_reclamo = generar_id_unico()
 
-            # Construcción de la fila de datos para la hoja de Reclamos respetando la estructura real (hasta col S)
             fila_reclamo = [
-                format_fecha(fecha_hora),       # A: Fecha y hora
-                estado['nro_cliente'],          # B: Nº Cliente
-                sector_normalizado,             # C: Sector
-                nombre.upper().strip(),         # D: Nombre
-                direccion.upper().strip(),      # E: Dirección
-                telefono.strip(),               # F: Teléfono
-                tipo_reclamo,                   # G: Tipo de reclamo
-                detalles.upper().strip(),       # H: Detalles
-                estado_reclamo,                 # I: Estado (Pendiente o Desconexión)
-                "",                             # J: Técnico (se asigna después)
-                precinto.strip(),               # K: N° de Precinto
-                atendido_por.upper().strip(),   # L: Atendido por
-                "",                             # M: Fecha_formateada (se llena al cerrar)
-                "",                             # N: Anotaciones (vacío al crear)
-                "",                             # O: (Columna libre)
-                id_reclamo,                     # P: ID Reclamo
-                "",                             # Q: (Columna libre)
-                "",                             # R: (Columna libre)
-                plan                            # S: Plan
+                format_fecha(fecha_hora),       
+                estado['nro_cliente'],          
+                sector_normalizado,             
+                nombre.upper().strip(),         
+                direccion.upper().strip(),      
+                telefono.strip(),               
+                tipo_reclamo,                   
+                detalles.upper().strip(),       
+                estado_reclamo,                 
+                "",                             
+                precinto.strip(),               
+                atendido_por.upper().strip(),   
+                "",                             
+                "",                             
+                "",                             
+                id_reclamo,                     
+                "",                             
+                "",                             
+                plan                            
             ]
 
-            # --- Interacción con Google Sheets ---
             success, error = api_manager.safe_sheet_operation(
                 sheet_reclamos.append_row,
                 fila_reclamo
@@ -409,15 +534,12 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
 
                 st.success(f"✅ Reclamo guardado - ID: {id_reclamo}")
 
-                # Gestionar cliente (nuevo o actualización) pasándole la caja_nap
                 _gestionar_cliente(
                     estado['nro_cliente'], sector_normalizado, nombre, 
                     direccion, telefono, precinto, plan, caja_nap, df_clientes, sheet_clientes
                 )
 
                 st.cache_data.clear()
-
-                # 🔄 Forzar recarga para limpiar el formulario y mostrar reclamo activo
                 st.rerun()
 
             else:
@@ -433,51 +555,42 @@ def _gestionar_cliente(nro_cliente, sector, nombre, direccion, telefono, precint
     cliente_existente = df_clientes[df_clientes["Nº Cliente"] == nro_cliente]
 
     if cliente_existente.empty:
-        # Crear nuevo cliente con UUID y última modificación (Exactamente 13 columnas)
         id_cliente = generar_id_unico()
         ultima_mod = format_fecha(ahora_argentina())
         fila_cliente = [
-            nro_cliente,           # A: Nº Cliente
-            sector,                # B: Sector
-            nombre.upper(),        # C: Nombre
-            direccion.upper(),     # D: Dirección
-            telefono.strip(),      # E: Teléfono
-            precinto.strip(),      # F: N° de Precinto
-            id_cliente,            # G: ID Cliente
-            ultima_mod,            # H: Última Modificación
-            "",                    # I: Anotaciones (vacío para nuevo cliente)
-            "",                    # J: Latitud
-            "",                    # K: Longitud
-            plan,                  # L: Plan
-            caja_nap.strip()       # M: Caja NAP
+            nro_cliente,           
+            sector,                
+            nombre.upper(),        
+            direccion.upper(),     
+            telefono.strip(),      
+            precinto.strip(),      
+            id_cliente,            
+            ultima_mod,            
+            "",                    
+            "",                    
+            "",                    
+            plan,                  
+            caja_nap.strip()       
         ]
         success, _ = api_manager.safe_sheet_operation(sheet_clientes.append_row, fila_cliente)
         if success:
             st.info("ℹ️ Nuevo cliente registrado exitosamente.")
     else:
-        # Actualizar cliente existente pero preservar anotaciones
         updates = []
         idx = cliente_existente.index[0] + 2
 
-        # Actualizar solo los campos que han cambiado
         if str(cliente_existente.iloc[0].get("Sector", "")).strip() != str(sector).strip():
             updates.append({"range": f"B{idx}", "values": [[sector]]})
-
         if str(cliente_existente.iloc[0].get("Nombre", "")).strip() != nombre.upper().strip():
             updates.append({"range": f"C{idx}", "values": [[nombre.upper()]]})
-
         if str(cliente_existente.iloc[0].get("Dirección", "")).strip() != direccion.upper().strip():
             updates.append({"range": f"D{idx}", "values": [[direccion.upper()]]})
-
         if str(cliente_existente.iloc[0].get("Teléfono", "")).strip() != telefono.strip():
             updates.append({"range": f"E{idx}", "values": [[telefono.strip()]]})
-
         if str(cliente_existente.iloc[0].get("N° de Precinto", "")).strip() != precinto.strip():
             updates.append({"range": f"F{idx}", "values": [[precinto.strip()]]})
-
         if str(cliente_existente.iloc[0].get("Plan", "")).strip() != plan.strip():
             updates.append({"range": f"L{idx}", "values": [[plan]]})
-            
         if str(cliente_existente.iloc[0].get("Caja NAP", "")).strip() != caja_nap.strip():
             updates.append({"range": f"M{idx}", "values": [[caja_nap.strip()]]})
 
