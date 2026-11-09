@@ -88,7 +88,7 @@ def generar_mensaje_asignacion(row, tecnicos_asignados):
 
     return msg
 
-def _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos):
+def _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos, key_suffix=""):
     """Dibuja los paneles nativos para cada reclamo activo y gestiona su asignación"""
     for idx, reclamo in reclamos_activos.iterrows():
         sheet_row_num = idx + 2
@@ -117,11 +117,12 @@ def _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df
             # --- 3. FORMULARIO DE ASIGNACIÓN (Solo Pendiente o En curso) ---
             if estado_lower in ["pendiente", "en curso"]:
                 st.divider()
-                with st.form(f"form_asignar_{nro_cliente_str}_{sheet_row_num}"):
+                # AQUI SE APLICA EL SUFIJO PARA EVITAR EL ERROR DE DUPLICADO
+                with st.form(f"form_asignar_{nro_cliente_str}_{sheet_row_num}_{key_suffix}"):
                     tecnicos_sel = st.multiselect(
                         "👷 Asignar o Reasignar Técnico(s)", 
                         options=TECNICOS_DISPONIBLES,
-                        key=f"ms_tec_{nro_cliente_str}_{sheet_row_num}"
+                        key=f"ms_tec_{nro_cliente_str}_{sheet_row_num}_{key_suffix}"
                     )
                     submit_asignar = st.form_submit_button("🚀 Asignar → En Curso", use_container_width=True)
                     
@@ -345,8 +346,8 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
         if not reclamos_activos.empty:
             st.warning("⚠️ Este cliente ya tiene un reclamo activo. No es posible crear otro hasta que se resuelva o cambie de número de cliente.")
             
-            # --- RENDERIZAR PANELES INTERACTIVOS ---
-            _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos)
+            # --- RENDERIZAR PANELES INTERACTIVOS (SUFIJO GUARDADO) ---
+            _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos, key_suffix="guardado")
 
         # Botón para crear nuevo reclamo después de guardar exitosamente
         if st.button("📝 Crear nuevo reclamo", type="primary"):
