@@ -216,8 +216,7 @@ def _verificar_reclamos_activos(nro_cliente, df_reclamos):
     # Convertir estados a minúsculas para comparación case-insensitive
     estados_activos = ["pendiente", "en curso", "verificado"]
     reclamos_activos = reclamos_cliente[
-        reclamos_cliente["Estado"].str.strip().str.lower().isin(estados_activos) |
-        (reclamos_cliente["Tipo de reclamo"].str.strip().str.lower() == "desconexion a pedido")
+        reclamos_cliente["Estado"].str.strip().str.lower().isin(estados_activos)
     ]
 
     return reclamos_activos
@@ -328,8 +327,16 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
         reclamos_activos = _verificar_reclamos_activos(estado['nro_cliente'], df_reclamos_norm)
 
         if not reclamos_activos.empty:
-            estado['formulario_bloqueado'] = True
-            st.error("⚠️ Este cliente ya tiene un reclamo sin resolver o una desconexión activa.")
+            # Lógica de excepción para permitir un reclamo nuevo si es solo "Desconectar Por Traslado"
+            tipos_activos = reclamos_activos["Tipo de reclamo"].str.strip().str.lower().unique()
+            es_solo_desconexion_traslado = (len(tipos_activos) == 1 and tipos_activos[0] == "desconectar por traslado")
+            
+            if es_solo_desconexion_traslado:
+                estado['formulario_bloqueado'] = False
+                st.warning("⚠️ El cliente tiene un 'Desconectar Por Traslado' activo. Se habilita el formulario para cargar su nuevo reclamo de traslado.")
+            else:
+                estado['formulario_bloqueado'] = True
+                st.error("⚠️ Este cliente ya tiene un reclamo sin resolver.")
 
             # --- RENDERIZAR PANELES INTERACTIVOS ---
             _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos)
@@ -344,7 +351,7 @@ def render_nuevo_reclamo(df_reclamos, df_clientes, sheet_reclamos, sheet_cliente
         reclamos_activos = _verificar_reclamos_activos(estado['nro_cliente'], df_reclamos_norm)
 
         if not reclamos_activos.empty:
-            st.warning("⚠️ Este cliente ya tiene un reclamo activo. No es posible crear otro hasta que se resuelva o cambie de número de cliente.")
+            st.info("ℹ️ Reclamos activos actuales del cliente:")
             
             # --- RENDERIZAR PANELES INTERACTIVOS (SUFIJO GUARDADO) ---
             _mostrar_reclamos_activos_interactivo(reclamos_activos, df_clientes_norm, df_reclamos, sheet_reclamos, key_suffix="guardado")
@@ -493,11 +500,9 @@ def _procesar_envio_formulario(estado, nombre, direccion, telefono, sector, tipo
     with st.spinner("Guardando reclamo..."):
         try:
             fecha_hora = ahora_argentina()
-            if tipo_reclamo.strip().lower() == "desconexion a pedido":
-                estado_reclamo = "Desconexión"
-            else:
-                estado_reclamo = "Pendiente"
-
+            
+            # Todos los reclamos inician por defecto en estado Pendiente
+            estado_reclamo = "Pendiente"
             id_reclamo = generar_id_unico()
 
             fila_reclamo = [

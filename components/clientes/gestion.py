@@ -656,12 +656,22 @@ def render_gestion_clientes(df_clientes, df_reclamos, sheet_clientes, user_role,
 
                         with edit_ccol2:
                             marca_actual = str(caja.get("Marca Equipo", "Huawei")).strip()
+                            
+                            # Adaptación: copiamos la lista para no afectar la original
+                            opciones_marcas_edit = MARCAS_EQUIPO.copy()
+                            
+                            # Si la caja vieja dice solo "VSol", la agregamos a las opciones
+                            # para que no se cambie sola a "Huawei" al editar otra cosa
+                            if marca_actual and marca_actual not in opciones_marcas_edit:
+                                opciones_marcas_edit.append(marca_actual)
+                                
                             try:
-                                marca_idx = MARCAS_EQUIPO.index(marca_actual) if marca_actual in MARCAS_EQUIPO else 0
+                                marca_idx = opciones_marcas_edit.index(marca_actual)
                             except ValueError:
                                 marca_idx = 0
+                                
                             edit_marca = st.selectbox(
-                                "🏷️ Marca Equipo", options=MARCAS_EQUIPO, index=marca_idx, key=f"caja_marca_{caja_row_idx}"
+                                "🏷️ Marca Equipo", options=opciones_marcas_edit, index=marca_idx, key=f"caja_marca_{caja_row_idx}"
                             )
 
                             splitter_actual = str(caja.get("Splitter", "")).strip()

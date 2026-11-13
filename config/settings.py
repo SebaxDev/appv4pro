@@ -41,7 +41,7 @@ COLUMNAS_NOTIFICACIONES = [
 # Agregá las opciones de Splitter disponibles:
 SPLITTERS_DISPONIBLES = ["1/4", "1/8", "1/16"]
 
-MARCAS_EQUIPO = ["Huawei", "VSol"]
+MARCAS_EQUIPO = ["Huawei", "VSol 1", "VSol 2", "VSol 3"]
 
 COLUMNAS_CAJAS = [
     "N De Caja", "Sector", "Barrio", "Latitud",
@@ -135,8 +135,8 @@ TIPOS_RECLAMO = [
     "Conexion C+I",
     "Conexion Cable",
     "Conexion Internet",
-    "Desconexion a Pedido",
     "Desconectar Servicio",
+    "Desconectar Por Traslado",
     "Extension",
     "Extension x2",
     "Extension x3",
